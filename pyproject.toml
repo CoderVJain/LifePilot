@@ -1,0 +1,51 @@
+[project]
+name = "lifepilot"
+version = "0.1.0"
+description = "Family Coordination Agent: an MCP server that repairs a family's week by voice"
+readme = "README.md"
+license = "MIT"
+requires-python = "==3.12.*"
+dependencies = [
+    # mcp 2.x serves spec 2025-11-25 and 2026-07-28 (hard requirement 1).
+    # Upper bound is forced by strands-agents, not by us: bumping it is deliberate.
+    "mcp>=2.1,<2.2",
+    "strands-agents>=1.57",
+    "ortools>=9.15",
+    "fastapi>=0.121",
+    "uvicorn[standard]>=0.40",
+    "sqlalchemy>=2.1",
+    "alembic>=1.17",
+    "psycopg[binary]>=3.2",
+    "boto3>=1.42",
+    "cryptography>=46",
+    "google-api-python-client>=2.190",
+    "google-auth-oauthlib>=1.2",
+    "pydantic>=2.12",
+    "python-dotenv>=1.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+    "pytest-asyncio>=1.3",
+    "ruff>=0.15",
+]
+
+[tool.uv]
+# Avast intercepts HTTPS with its own root CA. uv bundles its own trust store and
+# fails with "invalid peer certificate: UnknownIssuer"; native-tls uses the Windows
+# store, which does trust it. Same root cause as AWS_CA_BUNDLE for boto3.
+native-tls = true
+
+# Not a distributable package: three top-level modules run from the repo root.
+package = false
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
