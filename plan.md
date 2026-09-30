@@ -20,7 +20,7 @@ Established by inspecting this machine and the published wheels. Not assumptions
 | No `make`, no local Postgres, not yet a git repo | `command not found` |
 | AWS works: IAM user `counter-dev`, `us-east-1` | `aws sts get-caller-identity` |
 | `us.amazon.nova-micro-v1:0` ACTIVE | `aws bedrock list-inference-profiles` |
-| `mcp 2.1.1` serves spec **2025-11-25 and 2026-07-28** | `mcp-types` ships `_v2025_11_25/` + `_v2026_07_28/` |
+| `mcp 2.1.1` serves **2025-11-25** end to end; importing it breaks HTTP response framing | wire test negotiates 2025-11-25; a bare Starlette app frames correctly until `import mcp.server.mcpserver` is added (friction log 7) |
 | Upper pin `mcp<2.2` is forced by `strands-agents 1.57.1` | its `requires_dist` |
 | Strands' modern API is `MCPClient(url=...)`; its published docs are stale | `strands/tools/mcp/_compat.py` |
 | MCP Apps is first-party | `mcp/server/apps.py` |
@@ -76,33 +76,36 @@ No model calls, no network beyond package installs.
 
 First real Bedrock calls, now that a venv with `boto3` exists.
 
-- [ ] `scripts/probe_bedrock.py` — confirm `AWS_CA_BUNDLE` works from inside the venv and Nova Micro
+- [x] `scripts/probe_bedrock.py` — confirm `AWS_CA_BUNDLE` works from inside the venv and Nova Micro
       answers.
-- [ ] **Forced tool choice** — the one unverified assumption everything rests on. One output-only tool
+- [x] **Forced tool choice** — the one unverified assumption everything rests on. One output-only tool
       (`title`, `child`, `due`, `category`, `prep_days`) with `toolChoice: {tool: {name: ...}}`. Assert
       exactly one `toolUse` and no stray text. Fallback: `toolChoice: {any: {}}` with a single tool.
-- [ ] Same call on an email carrying an injection line. Assert the output is still only the schema. Keep
+- [x] Same call on an email carrying an injection line. Assert the output is still only the schema. Keep
       as a test fixture — evidence, not a promise.
-- [ ] Print token counts and cost; record in the friction log.
+- [x] Print token counts and cost; record in the friction log.
 
 ## Phase 3 — Data layer and seeded family
 
-- [ ] `lifepilot/db/models.py` — SQLAlchemy 2.1 typed models for every entity in `CLAUDE.md`. Portable
+- [x] `lifepilot/db/models.py` — SQLAlchemy 2.1 typed models for every entity in `CLAUDE.md`. Portable
       `sa.JSON` only. `school_message` has **no subject and no body columns**, enforced by schema.
-- [ ] Alembic + first migration.
-- [ ] `eval/generate.py` — seeded family (Dad, Mom, Aarav, Anaya, Grandpa), locations, `travel_time`.
-- [ ] `make seed` against SQLite and Neon.
+- [x] Alembic + first migration.
+- [x] `eval/generate.py` — seeded family (Dad, Mom, Aarav, Anaya, Grandpa), locations, `travel_time`.
+- [x] `make seed` against SQLite and Neon (PostgreSQL 18.6). Portable `sa.JSON` verified on both:
+      `member_ids` returns a list and `rule.params` a dict from Postgres, and the role-aware views
+      answer correctly against it. `tests/conftest.py` clears `DATABASE_URL` so the suite stays
+      offline and free whatever is in `.env`.
 
 **Verify:** round-trip tests on SQLite, offline and free · same seed twice → identical rows.
 
 ## Phase 4 — MCP server skeleton
 
-- [ ] `MCPServer` mounted via `streamable_http_app(streamable_http_path="/mcp")`. The **host** lifespan
+- [x] `MCPServer` mounted via `streamable_http_app(streamable_http_path="/mcp")`. The **host** lifespan
       must enter `mcp.session_manager.run()` or every request hangs.
-- [ ] `get_family`, `get_schedule`, **role-aware from the start** — a child sees parents' work as
+- [x] `get_family`, `get_schedule`, **role-aware from the start** — a child sees parents' work as
       "Busy", a caregiver sees only their assignments. Tool layer, never a prompt. (#9 is cheap now,
       expensive to retrofit.)
-- [ ] Test asserting the negotiated protocol version is **2025-11-25 or later on the wire** —
+- [x] Test asserting the negotiated protocol version is **2025-11-25 or later on the wire** —
       requirements 1 and 2 proven, not claimed.
 
 ## Phase 5 — The simulated Alexa+ web UI
@@ -265,6 +268,7 @@ tokens. AWS budget alert ≤$10 before demo week.
 | Nova Micro refuses forced `toolChoice` | Phase 2, ~$0.002, before anything depends on it. Fallback `{any: {}}` with one tool. |
 | **OR-Tools 9.15 segfault** on hinted models that presolve to nothing | `num_search_workers = 8`. Our warm-started repair is the exact reported trigger. |
 | Nova Micro too weak to pick among 18 tools | Experiment 4 measures exactly this; the coarse 9-tool set behind `TOOLSET` is the planned mitigation. No Nova Lite without an eval showing Micro fails. |
+| **Strands cannot negotiate with our server**: it calls `negotiate_auto` unconditionally and `MCPClient` has no `mode` | Settle at the *start* of phase 5, before UI work. Cheapest first: pre-negotiated session, custom `transport_callable`, or patch `negotiate_session`. Friction log 7. |
 | `SpeechRecognition` fails live | Typed input is a first-class path, not a bolted-on fallback. |
 | MCP Apps host bridge eats days | Text-only answer ships first; the card is additive. |
 | CP-SAT repair model is fiddly | Phase 6 reachability is pure and fully tested first, so the solver arrives with a known-good conflict set and a literature formulation. |

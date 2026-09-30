@@ -42,10 +42,14 @@ package = false
 
 [tool.ruff]
 line-length = 110
+# Alembic writes these; its template is not ours to satisfy.
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The project is not installed (package = false), so put the repo root on sys.path.
+pythonpath = ["."]
 asyncio_mode = "auto"

@@ -98,7 +98,9 @@ audit logs.
 
 1. MCP server implements **spec 2025-11-25 or later** over **Streamable HTTP** (not stdio, not the old
    HTTP+SSE transport). The rules set 2025-11-25 as the **minimum** acceptable version, not an exact
-   pin; we negotiate both 2025-11-25 and 2026-07-28.
+   pin. **We negotiate 2025-11-25**, proven on the wire in `tests/test_mcp_wire.py`. The 2026-07-28
+   serving path in `mcp 2.1.1` never flushes a response body over a real ASGI server (friction log 7),
+   so clients must connect with `mode="legacy"`, the SDK's name for the `initialize` handshake era.
 2. The MCP SDK is **imported and actually called at runtime**. Naming it in the README does not count.
 3. Public GitHub repo with an **MIT license visible in the About section**.
 4. README has **clear setup + run instructions**; a judge must be able to run it from a fresh clone.
@@ -239,6 +241,26 @@ doesn't fit a supported type, say so and ask; don't invent a type on the fly.
 - Post-hackathon: parental consent before any child profile, in line with India's DPDP Act, 2023 (verify with
   counsel before launch). Mention in the README; don't build it now.
 
+### Secret files are off limits (applies to every assistant and contributor)
+
+**Never read, open, edit, write or print the contents of a secret file.** That means `.env`, any
+`.env.*` other than `.env.example`, `~/.aws/credentials`, `~/.aws/config`, OAuth token stores,
+private keys and service-account JSON. Not with an editor, not with `cat`, `grep`, `sed` or a
+script, not "just to check".
+
+Secrets are reached **only** as environment variables resolved by the running program
+(`os.environ`, `load_dotenv()`). The code may use a value; nobody needs to look at it.
+
+Allowed:
+- create and edit `.env.example` with placeholders and comments, never real values
+- report whether a variable is **set** — names only, never values
+- mask secrets in every output and log, e.g. `engine.url.render_as_string(hide_password=True)`,
+  which prints `user:***@host` where `str(url)` would print the password in cleartext
+
+When a real value is needed, name the variable to set and let the owner set it. This is why
+`AWS_CA_BUNDLE` and `AWS_REGION` live in `.env.example` while AWS keys do not: `boto3` resolves
+credentials from the standard chain, so nothing in LifePilot ever reads, stores or logs them.
+
 ---
 
 ## Architecture
@@ -287,8 +309,9 @@ so there is exactly one file to read when asking what spends money.
 - Python 3.12, FastAPI, official MCP Python SDK (Streamable HTTP)
 - **`mcp>=2.1,<2.2`** (2.1.1). The upper bound is not ours: `strands-agents` requires `mcp<2.2`.
   Bumping it is a deliberate act, not a routine upgrade. In 2.x the server class is `MCPServer`
-  (`mcp.server.mcpserver`), not `FastMCP`, and `mcp-types` ships both `_v2025_11_25` and
-  `_v2026_07_28`, so this pin satisfies hard requirement 1 with room to spare.
+  (`mcp.server.mcpserver`), not `FastMCP`. `mcp-types` ships both `_v2025_11_25` and
+  `_v2026_07_28`, but shipping the types is not serving the version: only the 2025-11-25 handshake
+  era works end to end. This pin satisfies hard requirement 1 exactly, with no room to spare.
 - **MCP Apps is first-party**: `mcp.server.apps` (`Apps`, `@apps.tool(resource_uri="ui://...")`,
   `add_html_resource`, `client_supports_apps`). No third-party UI library needed.
 - LLM: **Amazon Bedrock Nova Micro only** (see cost rules). Model ID from env var.

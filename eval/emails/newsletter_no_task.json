@@ -1,0 +1,7 @@
+{
+  "sender": "office@demo-school.invalid",
+  "subject": "October newsletter",
+  "body": "Dear parents, our football team won their match on Tuesday. The library has new books on space. Thank you for your continued support.",
+  "label": "no_task",
+  "expected": []
+}
