@@ -22,8 +22,11 @@ from sqlalchemy.orm import Session
 
 from lifepilot.db.models import Assignment, Event, Family, Location, Member, Rule, Task, TravelTime
 from lifepilot.db.session import make_engine, make_session_factory
+from lifepilot_shared.week import demo_week
 
-MONDAY = date(2026, 10, 5)
+# The demo week follows the real calendar, so "tomorrow" is a day with something in it. Tests and
+# the recorded demo pin it with LIFEPILOT_WEEK=fixed; see lifepilot_shared.week.
+MONDAY, FRIDAY = demo_week()
 THURSDAY = MONDAY + timedelta(days=3)
 
 LOCATIONS = (

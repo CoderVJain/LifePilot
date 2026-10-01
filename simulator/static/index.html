@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LifePilot</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='none' stroke='%23f0913f' stroke-width='2'/%3E%3Cline x1='9' y1='15' x2='15' y2='9' stroke='%23f0913f' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <span class="name">LifePilot</span>
+  </div>
+  <p class="disclaimer" role="note">Simulated Alexa+ experience &middot; not an Amazon product</p>
+</header>
+
+<main class="stage">
+
+  <section class="speakers" aria-label="Who is speaking">
+    <span class="speakers-label">Speaking as</span>
+    <div class="speaker-buttons" role="radiogroup" aria-label="Speaker">
+      <button class="speaker is-active" role="radio" aria-checked="true" data-speaker="Dad" data-role="parent">
+        Dad <span class="role">parent</span>
+      </button>
+      <button class="speaker" role="radio" aria-checked="false" data-speaker="Mom" data-role="parent">
+        Mom <span class="role">parent</span>
+      </button>
+      <button class="speaker" role="radio" aria-checked="false" data-speaker="Aarav" data-role="child">
+        Aarav <span class="role">child</span>
+      </button>
+      <button class="speaker" role="radio" aria-checked="false" data-speaker="Grandpa" data-role="caregiver">
+        Grandpa <span class="role">caregiver</span>
+      </button>
+    </div>
+  </section>
+
+  <section class="thread" id="thread" aria-live="polite" aria-label="Conversation">
+    <div class="empty" id="empty">
+      <p class="empty-lead">Ask about the week.</p>
+      <p class="empty-hint">&ldquo;What&rsquo;s happening this week?&rdquo; &middot; &ldquo;Who is in the family?&rdquo;</p>
+    </div>
+  </section>
+
+  <section class="controls">
+    <button id="mic" class="mic" data-state="idle" aria-label="Hold to speak">
+      <span class="mic-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+          <line x1="12" y1="19" x2="12" y2="22"></line>
+        </svg>
+      </span>
+      <span class="mic-state" id="micState">Tap to speak</span>
+    </button>
+
+    <form class="typed" id="typedForm" autocomplete="off">
+      <label class="sr-only" for="typed">Type instead</label>
+      <input id="typed" name="typed" type="text" placeholder="or type here" />
+      <button type="submit" class="send">Send</button>
+    </form>
+    <p class="speech-note" id="speechNote" hidden></p>
+  </section>
+
+  <section class="drawer" id="drawer">
+    <button class="drawer-toggle" id="drawerToggle" aria-expanded="false" aria-controls="drawerBody">
+      <span class="chev" aria-hidden="true">&rsaquo;</span>
+      Under the hood
+      <span class="meter" id="meter">0 model calls &middot; $0.000000</span>
+    </button>
+    <div class="drawer-body" id="drawerBody" hidden>
+      <p class="drawer-empty" id="drawerEmpty">Nothing yet. Ask something.</p>
+      <ol class="trace" id="trace"></ol>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <span class="tag">Demo school &middot; fake emails</span>
+  <span class="tag">Synthetic family &middot; no real data</span>
+  <span class="conn" id="conn" data-state="connecting">connecting</span>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

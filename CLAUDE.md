@@ -98,9 +98,10 @@ audit logs.
 
 1. MCP server implements **spec 2025-11-25 or later** over **Streamable HTTP** (not stdio, not the old
    HTTP+SSE transport). The rules set 2025-11-25 as the **minimum** acceptable version, not an exact
-   pin. **We negotiate 2025-11-25**, proven on the wire in `tests/test_mcp_wire.py`. The 2026-07-28
-   serving path in `mcp 2.1.1` never flushes a response body over a real ASGI server (friction log 7),
-   so clients must connect with `mode="legacy"`, the SDK's name for the `initialize` handshake era.
+   pin. **We negotiate 2025-11-25**, proven on the wire in `tests/test_mcp_wire.py`. On this dev box
+   only, clients connect with `mode="legacy"` (the `initialize` handshake era): Avast corrupts any
+   loopback response whose request carried an `MCP-Protocol-Version` header, which the modern probe
+   sends. That is an antivirus fault, not an SDK or server defect (friction log 7).
 2. The MCP SDK is **imported and actually called at runtime**. Naming it in the README does not count.
 3. Public GitHub repo with an **MIT license visible in the About section**.
 4. README has **clear setup + run instructions**; a judge must be able to run it from a fresh clone.
@@ -310,8 +311,9 @@ so there is exactly one file to read when asking what spends money.
 - **`mcp>=2.1,<2.2`** (2.1.1). The upper bound is not ours: `strands-agents` requires `mcp<2.2`.
   Bumping it is a deliberate act, not a routine upgrade. In 2.x the server class is `MCPServer`
   (`mcp.server.mcpserver`), not `FastMCP`. `mcp-types` ships both `_v2025_11_25` and
-  `_v2026_07_28`, but shipping the types is not serving the version: only the 2025-11-25 handshake
-  era works end to end. This pin satisfies hard requirement 1 exactly, with no room to spare.
+  `_v2026_07_28`. We have verified 2025-11-25 end to end; 2026-07-28 is untested here because the
+  local antivirus corrupts those responses (friction log 7), so treat requirement 1 as met by
+  2025-11-25 alone.
 - **MCP Apps is first-party**: `mcp.server.apps` (`Apps`, `@apps.tool(resource_uri="ui://...")`,
   `add_html_resource`, `client_supports_apps`). No third-party UI library needed.
 - LLM: **Amazon Bedrock Nova Micro only** (see cost rules). Model ID from env var.

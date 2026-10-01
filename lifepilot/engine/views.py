@@ -24,7 +24,11 @@ class Viewer:
 
 
 def event_view(
-    event, viewer: Viewer, driven_event_ids: set[int], location_names: dict[int, str]
+    event,
+    viewer: Viewer,
+    driven_event_ids: set[int],
+    location_names: dict[int, str],
+    member_names: dict[int, str] | None = None,
 ) -> dict | None:
     """One event as this viewer may see it, or None when they may not see it at all."""
     attending = viewer.member_id in event.member_ids
@@ -44,6 +48,7 @@ def event_view(
             "redacted": True,
         }
 
+    names = member_names or {}
     return {
         "id": event.id,
         "title": event.title,
@@ -54,6 +59,9 @@ def event_view(
         "needs_transport": event.needs_transport,
         "movable": event.movable,
         "member_ids": list(event.member_ids),
+        # Whose event this is. Without it a caller cannot tell Mom's work from Dad's, and anything
+        # summarising the week will attach every event to whoever asked.
+        "members": [names[mid] for mid in event.member_ids if mid in names],
         "redacted": False,
     }
 

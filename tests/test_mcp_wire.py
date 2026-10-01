@@ -21,9 +21,10 @@ from lifepilot.db.session import make_engine, make_session_factory
 MINIMUM_PROTOCOL_VERSION = "2025-11-25"
 
 # mode="legacy" is the SDK's name for the `initialize` handshake era, which tops out at 2025-11-25 --
-# exactly the version the rules require. The default mode="auto" first probes `server/discover` at
-# 2026-07-28, and the reply to that probe is unreadable by any HTTP client (friction log 7), so the
-# SDK's documented fallback to `initialize` never runs.
+# exactly the version the rules require. The default mode="auto" probes `server/discover` first, and
+# that probe sends an `MCP-Protocol-Version` header; Avast corrupts any loopback response whose
+# request carried one (friction log 7). The server is fine, and so is the SDK: this pins the one path
+# that never sends the header, so the suite passes on this dev box.
 HANDSHAKE = "legacy"
 
 

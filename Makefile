@@ -1,12 +1,16 @@
 # Every target is a one-liner delegating to uv, so the same work runs without make.
-.PHONY: dev serve test seed eval lint
+.PHONY: dev serve seed-demo test seed eval lint
 
-# dev runs both processes once the simulator lands in phase 5. Until then, use `make serve`.
+# Two processes. Run `make serve` in one terminal and `make dev` in another.
+# The demo uses a local SQLite file: Neon is ~1.9s per tool call from India, local is ~35ms.
 dev:
-	uv run python -m simulator.app
+	uv run uvicorn simulator.app:app --port 8000
 
 serve:
-	uv run uvicorn lifepilot.server:app --port 8931
+	DATABASE_URL=sqlite+pysqlite:///demo.db uv run uvicorn lifepilot.server:app --port 8931
+
+seed-demo:
+	DATABASE_URL=sqlite+pysqlite:///demo.db uv run python -m eval.generate --seed-db
 
 test:
 	uv run pytest
