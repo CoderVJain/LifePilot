@@ -262,6 +262,24 @@ When a real value is needed, name the variable to set and let the owner set it. 
 `AWS_CA_BUNDLE` and `AWS_REGION` live in `.env.example` while AWS keys do not: `boto3` resolves
 credentials from the standard chain, so nothing in LifePilot ever reads, stores or logs them.
 
+### Never let `.env` decide what a command acts on
+
+Not reading `.env` is not enough. `lifepilot.db.session` calls `load_dotenv()`, so **any** command
+run without an explicit `DATABASE_URL` silently acts on whatever is in `.env` — which is the real
+Neon database. `uv run python -m eval.generate --seed-db --reset` run that way dropped and recreated
+every table in Neon when the intent was the local `demo.db`.
+
+So, for every command that writes, seeds, resets or migrates:
+
+- **Say which database, in the command.** `DATABASE_URL=sqlite+pysqlite:///demo.db uv run ...` for
+  local work. Inheriting it from `.env` is never the intent, even when it happens to be right.
+- **Reseeding, resetting or migrating a remote database is the owner's call**, not an assistant's
+  and not a step on the way to something else. Ask first, every time; `--reset` drops tables.
+- Reading is held to the same rule: a read against Neon costs nothing but proves nothing about the
+  local run it was meant to check.
+- `tests/conftest.py` already deletes `DATABASE_URL` for the whole suite, which is why tests cannot
+  do this. Anything outside the suite has no such guard.
+
 ---
 
 ## Architecture
@@ -353,25 +371,38 @@ so there is exactly one file to read when asking what spends money.
 
 ## MCP tools
 
-The full set is **18 tools**; experiment 4 compares it with a **9-tool** merged set behind `TOOLSET=full|coarse`.
-Same capabilities, different granularity. Keep both sets in sync.
+The server registers **18 tools**; experiment 4 compares the routing set with a **9-tool** merged
+set behind `TOOLSET=full|coarse`. Same capabilities, different granularity. Keep both sets in sync —
+`tests/test_toolsets.py` fails if a tool is added to one and forgotten in the other.
 
-**Full set (18):**
+**The comparison is 14 against 9, not 18 against 9.** The model is only ever offered the 14 it can
+route to; the other four (`approve_proposal`, `reject_proposal`, `list_proposals`, `name_task_child`)
+are reached by code paths, because a yes or no is settled before the model is asked. Measured, the
+coarse set is **worse** — 82.2% tool correctness against 100% — so it is a result to report, not a
+mitigation to hold in reserve. See `eval/results/experiment4.csv`.
+
+**Full set (18 registered):**
 
 | Area | Tools |
 |---|---|
 | Context | `get_family`, `get_schedule` (events + tasks) |
 | Rules | `add_rule`, `list_rules`, `remove_rule` |
-| Detect | `detect_conflicts` (#1), `scan_risks` |
+| Detect | `detect_conflicts` (#1) · `scan_risks` **not built** |
 | Decide | `suggest_responsible` (#2), `explain_choice` (#3, "why" and "why not X") |
 | Repair | `fix_week` (#4), `what_if` (#5, read-only) |
 | Approve | `approve_proposal`, `reject_proposal` |
 | Partner | `request_swap` (#6) |
-| Changes | `add_event`, `update_task` |
+| Changes | `add_event` · `update_task` **not built** |
+| Proposals | `list_proposals`, `name_task_child` (both built, were missing from this table) |
 | School email | `check_school_email` (#7), `manage_email_access` (set allowed senders, disconnect) |
 
-**Coarse set (9):** `get_context`, `update_rules`, `find_problems`, `decide_and_explain`, `plan_changes`,
-`decide_proposal`, `request_swap`, `update_schedule`, `school_email`.
+**Coarse set (9), as built in `simulator/toolsets.py`:** `get_context`, `update_rules`,
+`find_problems`, `decide_and_explain`, `plan_changes`, `update_schedule`, `school_email`,
+`request_swap`, `cannot_help`.
+
+`cannot_help` replaces this table's original `decide_proposal`: a refusal has to be routable, and a
+proposal decision never is. The coarse set is a view over the schemas the model chooses among, not a
+second registration — the server stays at 18.
 
 Stretch tools (`make_study_plan`, `get_load_summary`) sit behind `STRETCH=1` and are in neither set.
 
@@ -425,6 +456,31 @@ Every number in the README and video comes from `make eval`, never typed in by h
    "demo school, fake emails" labels.
 
 Never open the video with a schedule or a daily briefing. Never show a real inbox.
+
+### Remember on video day
+
+Do these in order, the morning of recording. Each one has broken a demo or would have.
+
+1. **Re-link the demo Gmail account.** In Testing mode Google expires the refresh token every
+   **7 days**, so a link made last week is dead and `check_school_email` fails live on camera. This
+   is the single most likely thing to break on the day, and it is silent until you ask for email.
+2. **Send the fake school emails into the demo inbox**, if they are not already sitting there. The
+   sender is our own account playing the school; the inbox LifePilot reads is always the
+   **dedicated demo account**, never a real personal inbox (requirement 9).
+3. **Set the allowed senders by voice** once, so the allowlist is built the way the product
+   intends, and so the step is on camera rather than assumed.
+4. **Reseed the demo family.** Varun runs this, and names the database in the command rather than
+   letting `.env` choose it — `--reset` drops every table:
+   `DATABASE_URL=<the demo database> uv run python -m eval.generate --seed-db --reset`. The seeded
+   week follows the real calendar, so data seeded a week ago puts the whole demo in the past. Check
+   the dates afterwards, not just the exit code.
+5. **Decide the week pin.** Leave `LIFEPILOT_WEEK` unset for a live demo so "tomorrow" is real; set
+   it to `fixed` only if you are matching a previously recorded take.
+6. **Check Bedrock spend** in the Billing console, and that the budget alert (≤ $10) still exists.
+7. **Confirm the labels are visible** — "Simulated Alexa+ experience" and "Demo school · fake
+   emails" — and that no Amazon or Alexa mark is anywhere on screen (requirements 5, 8, 10).
+8. **Use Chrome or Edge.** `SpeechRecognition` needs the network and is absent in Firefox by
+   default. Have typed input ready as the fallback; it is a first-class path, not a patch.
 
 ---
 
@@ -480,7 +536,7 @@ the $20 Bedrock pool in **6.6 hours**.
 ```bash
 make dev         # MCP server + simulator locally
 make test        # unit tests with FakeModel + fake Gmail — free, offline
-make seed        # load the demo family into Postgres
+make seed        # load the demo family into Postgres -- owner runs this, see the .env rule
 make eval        # all experiments -> eval/results/ (respects EVAL_MAX_CALLS)
 make eval EXP=1  # one experiment
 ```
@@ -516,3 +572,6 @@ AWS_CA_BUNDLE=C:\ProgramData\Avast Software\Avast\wscert.pem
 - If something makes LifePilot look like a calendar, reminder app, load balancer or dashboard, say so before
   building it.
 - If a decision affects hackathon eligibility, security, or the cost rules, say so explicitly before doing it.
+- **Never run a command that writes to whatever `.env` points at.** Name the database in the command,
+  and leave reseeding or resetting the remote one to Varun. See "Never let `.env` decide what a
+  command acts on".

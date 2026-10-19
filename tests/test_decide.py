@@ -45,7 +45,7 @@ def test_the_suggestion_carries_a_reason_a_person_would_accept(session):
 def test_everyone_ruled_out_comes_back_with_why(session):
     result = suggest(session, title="football")
     ruled_out = {r["name"]: r["reason"] for r in result["ruled_out"]}
-    assert ruled_out["Dad"] == "arrives 17:25, needs 17:00"
+    assert ruled_out["Dad"] == "arrives 5:25 PM, needs 5 PM"
     assert ruled_out["Grandpa"] == "rule: only when no parent is free"
     assert ruled_out["Aarav"] == "cannot drive"
 
@@ -55,13 +55,15 @@ def test_why_not_grandpa_names_the_rule(session):
     answer = explain_choice(session, "Dad", MONDAY, FRIDAY, "Grandpa", title="football")
     assert answer["can_do_it"] is False
     assert answer["reason"] == "rule: only when no parent is free"
-    assert answer["say"] == "Not Grandpa: rule: only when no parent is free."
+    assert answer["say"] == (
+        "Not Grandpa, because your rule says only when no parent is free. Mom can."
+    )
 
 
 def test_why_not_dad_names_the_travel_time(session):
     answer = explain_choice(session, "Dad", MONDAY, FRIDAY, "Dad", title="football")
     assert answer["can_do_it"] is False
-    assert "arrives 17:25, needs 17:00" in answer["say"]
+    assert "arrives 5:25 PM, needs 5 PM" in answer["say"]
 
 
 def test_why_mom_says_what_makes_her_able(session):
@@ -103,6 +105,8 @@ def test_an_unknown_lift_lists_the_ones_that_exist(session):
     assert {lift["title"] for lift in result["lifts"]} == {
         "piano class pickup",
         "football practice pickup",
+        "cricket practice pickup",
+        "school pickup",
     }
 
 
@@ -110,3 +114,40 @@ def test_a_lift_can_be_asked_for_by_event_id(session):
     by_title = suggest(session, title="football")
     by_id = suggest(session, event_id=by_title["event_id"])
     assert by_id["ranked"] == by_title["ranked"]
+
+
+def test_the_last_of_several_does_not_claim_to_be_the_only_one():
+    """A ranked list has no runner-up below its last entry, which used to be read as being the only
+    adult who can get there -- said about somebody ranked behind another who also can."""
+    from lifepilot.engine.allocation import rank
+    from lifepilot.engine.reachability import Candidate
+
+    both = [
+        Candidate(person_id=1, name="Dad", reachable=True, travel_minutes=15, slack_minutes=60,
+                  reason=""),
+        Candidate(person_id=2, name="Mom", reachable=True, travel_minutes=20, slack_minutes=60,
+                  reason=""),
+    ]
+    choices = rank(both, loads={}, balance_load=False)
+    assert [c.name for c in choices] == ["Dad", "Mom"]
+    assert "only one" not in choices[-1].reason
+    assert choices[-1].deciding_factor == "also_could"
+
+    alone = rank(both[:1], loads={}, balance_load=False)
+    assert alone[0].deciding_factor == "only_one"
+    assert "only one" in alone[0].reason
+
+
+def test_a_refusal_reads_as_a_sentence_and_names_who_can(session):
+    """Found on camera in the browser run: "Not Grandpa: rule: only when no parent is free." Two
+    colons and a fragment. The stored reason stays machine-readable -- `conflicts` classifies a rule
+    clash by its "rule:" prefix -- so the wording belongs in the spoken layer."""
+    answer = explain_choice(
+        session, "Dad", MONDAY, FRIDAY, person="Grandpa", title="football practice"
+    )
+
+    assert "rule: " not in answer["say"], "the stored prefix is not for speaking"
+    assert "::" not in answer["say"]
+    assert answer["say"].startswith("Not Grandpa, because your rule says")
+    assert "Mom can" in answer["say"], "naming who can is half the answer"
+    assert answer["reason"] == "rule: only when no parent is free", "the record is unchanged"

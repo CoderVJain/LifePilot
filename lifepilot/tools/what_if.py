@@ -64,13 +64,23 @@ def _describe(effect, change: dict) -> str:
         freed = ", ".join(c.title for c in effect.resolves)
         return f"That actually helps: it clears {freed}."
 
-    first = effect.breaks[0]
-    opening = (
-        "That breaks one thing"
-        if len(effect.breaks) == 1
-        else f"That breaks {len(effect.breaks)} things"
+    if effect.breaks:
+        first = effect.breaks[0]
+        opening = (
+            "That breaks one thing"
+            if len(effect.breaks) == 1
+            else f"That breaks {len(effect.breaks)} things"
+        )
+        return f"{opening}. {first.detail}."
+
+    # Nothing new, but something already broken got deeper, which is still a no.
+    first = effect.worsens[0]
+    others = (
+        ""
+        if len(effect.worsens) == 1
+        else f" {len(effect.worsens) - 1} other problems get worse too."
     )
-    return f"{opening}. {first.detail}."
+    return f"Nothing new breaks, but {first.title} gets worse. {first.detail}.{others}"
 
 
 def _fix_sentence(fix) -> str:

@@ -23,7 +23,7 @@ from lifepilot.engine.reachability import (
     assess,
     reachable,
 )
-from lifepilot_shared.speech import say_span
+from lifepilot_shared.speech import say_span, say_time
 
 
 @dataclass(frozen=True)
@@ -145,7 +145,7 @@ def _transport(week: Week) -> list[Conflict]:
         blocked_by_rule = [c for c in candidates if c.reason.startswith("rule:")]
         kind = "no_eligible_adult" if blocked_by_rule else "unreachable"
         detail = (
-            f"nobody can get {need.title} covered at {need.moment.strftime('%H:%M')}"
+            f"nobody can get {need.title} covered at {say_time(need.moment)}"
             if kind == "unreachable"
             else f"the only people free are not allowed to cover {need.title}"
         )
@@ -189,8 +189,8 @@ def _latest_end(week: Week, rule: Mapping) -> list[Conflict]:
                     title=commitment.title,
                     when=commitment.start,
                     detail=(
-                        f"{commitment.title} runs to {commitment.end.strftime('%H:%M')}, "
-                        f"past your rule of {params['latest_end']}"
+                        f"{commitment.title} runs to {say_time(commitment.end)}, "
+                        f"past your rule of {say_time(limit)}"
                     ),
                     event_id=commitment.id,
                 )
@@ -223,7 +223,7 @@ def _buffer_after(week: Week, rule: Mapping) -> list[Conflict]:
                         detail=(
                             f"{person.name} needs {params['minutes']} minutes after "
                             f"{anchor.title}, and {other.title} starts at "
-                            f"{other.start.strftime('%H:%M')}"
+                            f"{say_time(other.start)}"
                         ),
                         event_id=other.id,
                     )

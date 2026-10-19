@@ -8,7 +8,7 @@ Relative days are used when the week in question is near today, because "tomorro
 question was put and answering it with a weekday makes the listener do the arithmetic back.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from lifepilot_shared.clock import today as _today
 
@@ -19,8 +19,12 @@ MONTHS = (
 )
 
 
-def say_time(moment: datetime) -> str:
-    """4 PM, 4:30 PM, 8 AM. No leading zero, no 24-hour clock, no seconds."""
+def say_time(moment: datetime | time) -> str:
+    """4 PM, 4:30 PM, 8 AM. No leading zero, no 24-hour clock, no seconds.
+
+    Takes a bare `time` as well, because a rule stores a cut-off as one and "past your rule of
+    21:00" is the same leak in the same sentence.
+    """
     hour = moment.hour % 12 or 12
     suffix = "AM" if moment.hour < 12 else "PM"
     if moment.minute == 0:
@@ -93,13 +97,35 @@ def say_window(start: str | date, end: str | date, today: date | None = None) ->
     return f"{say_day(first, today)} to {say_day(last, today)}"
 
 
-def say_list(items: list[str]) -> str:
-    """Joined the way it would be said: a, b and c."""
+def say_lift(members: list[str], collecting: bool = False) -> str:
+    """Why an event needs an adult, naming who has to be moved.
+
+    "Needs a lift" is our word, not a parent's, and a tester asked what it meant. The useful facts are
+    who has to be driven and whether it is there or back, so both are said.
+    """
+    who = say_list(members) or "somebody"
+    return f"someone has to {'collect' if collecting else 'drive'} {who}"
+
+
+def say_reason(reason: str) -> str:
+    """A recorded exclusion reason, said out loud.
+
+    The stored form is machine-readable -- the conflict classifier tells a rule clash from a travel
+    problem by the "rule:" prefix -- so it is reworded here rather than changed at the source.
+    Spoken straight into a sentence it read "Not Grandpa: rule: only when no parent is free".
+    """
+    if reason.startswith("rule:"):
+        return f"your rule says {reason[len('rule:'):].strip()}"
+    return reason
+
+
+def say_list(items: list[str], joiner: str = "and") -> str:
+    """Joined the way it would be said: a, b and c. `joiner="or"` for a choice being offered."""
     if not items:
         return ""
     if len(items) == 1:
         return items[0]
-    return f"{', '.join(items[:-1])} and {items[-1]}"
+    return f"{', '.join(items[:-1])} {joiner} {items[-1]}"
 
 
 def plural(count: int, one: str, many: str | None = None) -> str:

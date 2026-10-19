@@ -14,7 +14,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 ROLES = ("parent", "child", "caregiver")
 RULE_TYPES = ("immovable_event", "latest_end", "buffer_after", "eligibility", "load_balance")
-PROPOSAL_KINDS = ("fix", "assign", "swap", "rule", "event", "task")
+PROPOSAL_KINDS = ("fix", "assign", "swap", "rule", "event", "task", "closure")
 PROPOSAL_STATUSES = ("pending", "approved", "rejected", "expired")
 ASSIGNMENT_KINDS = ("drop", "pickup")
 TASK_SOURCES = ("voice", "email")

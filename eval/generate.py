@@ -13,21 +13,43 @@ number for differentiator #1.
 
 Thursday also carries a rule clash: Aarav's project block runs 20:00-21:30, past the 21:00 study
 deadline. Repairing both is the two-change diff of the demo.
+
+Tuesday carries Mom's 6 PM cricket collection, which exists so a Dad/Mom swap can succeed: it is the
+only lift of hers Dad can reach from the office.
+
+The weekend running into the week is seeded too, so the day the demo is given on is never empty.
+It is deliberately easy: no work, no school, and its one lift is reachable from home.
 """
 
 import argparse
 from datetime import date, datetime, timedelta
 
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from lifepilot.db.models import Assignment, Event, Family, Location, Member, Rule, Task, TravelTime
+from lifepilot.db.models import (
+    Assignment,
+    Base,
+    Event,
+    Family,
+    Location,
+    Member,
+    Rule,
+    Task,
+    TravelTime,
+)
 from lifepilot.db.session import make_engine, make_session_factory
 from lifepilot_shared.week import demo_week
 
 # The demo week follows the real calendar, so "tomorrow" is a day with something in it. Tests and
 # the recorded demo pin it with LIFEPILOT_WEEK=fixed; see lifepilot_shared.week.
 MONDAY, FRIDAY = demo_week()
+TUESDAY = MONDAY + timedelta(days=1)
 THURSDAY = MONDAY + timedelta(days=3)
+# The weekend running into the week. demo_week rolls forward over a weekend, so asked on a Saturday
+# the working week starts two days later and today holds nothing at all. See `demo_span`.
+SATURDAY = MONDAY - timedelta(days=2)
+SUNDAY = MONDAY - timedelta(days=1)
 
 LOCATIONS = (
     "home",
@@ -37,6 +59,7 @@ LOCATIONS = (
     "football ground",
     "piano school",
     "grandpa home",
+    "cricket nets",
 )
 
 # One entry per unordered pair; the table is filled symmetrically. Minutes, door to door.
@@ -62,6 +85,13 @@ TRAVEL_MINUTES = {
     ("football ground", "piano school"): 10,
     ("football ground", "grandpa home"): 18,
     ("piano school", "grandpa home"): 12,
+    ("home", "cricket nets"): 10,
+    ("dad office", "cricket nets"): 30,
+    ("mom office", "cricket nets"): 18,
+    ("school", "cricket nets"): 12,
+    ("football ground", "cricket nets"): 14,
+    ("piano school", "cricket nets"): 12,
+    ("grandpa home", "cricket nets"): 14,
 }
 
 
@@ -107,11 +137,27 @@ def _add_members(session: Session, family: Family, loc: dict[str, int]) -> dict[
     return {person.name: person for person in people}
 
 
+#: Who collects the children from school, by weekday. The school run is the errand working parents
+#: actually negotiate, and without it the week has only two lifts in it and the solver has nothing to
+#: reason about. Uneven on purpose: it gives the soft load_balance rule something real to object to.
+SCHOOL_COLLECTOR = {0: "Mom", 1: "Dad", 2: "Mom", 3: "Mom", 4: "Mom"}
+
+#: School finishes at 3. A parent collecting has to be there, so their working day ends early enough
+#: to cross town: 22 minutes from Mom's office, 38 from Dad's.
+COLLECTION_DAY_END = {"Mom": (14, 30), "Dad": (14, 15)}
+
+
 def _add_work_and_school(session: Session, family: Family, loc: dict[str, int], who: dict[str, Member]):
-    """Weekday routine. Thursday is shorter for both parents so the afternoon scenario has no overlap."""
+    """Weekday routine, including the school run.
+
+    Thursday is shorter for both parents so the afternoon scenario has no overlap: a calendar check
+    must find nothing while the football pickup is still impossible.
+    """
     for day in _weekdays():
-        dad_end = at(day, 15, 45) if day == THURSDAY else at(day, 16, 30)
-        mom_end = at(day, 15, 45) if day == THURSDAY else at(day, 16, 0)
+        collector = SCHOOL_COLLECTOR[day.weekday()]
+        dad_end = _working_until(day, "Dad", collector)
+        mom_end = _working_until(day, "Mom", collector)
+
         session.add(Event(
             family_id=family.id, member_ids=[who["Dad"].id], title="work", category="work",
             start=at(day, 9, 30), end=dad_end, location_id=loc["dad office"],
@@ -122,11 +168,24 @@ def _add_work_and_school(session: Session, family: Family, loc: dict[str, int], 
             start=at(day, 9, 0), end=mom_end, location_id=loc["mom office"],
             movable=False, visibility="parents",
         ))
-        session.add(Event(
+        school = Event(
             family_id=family.id, member_ids=[who["Aarav"].id, who["Anaya"].id], title="school",
             category="school", start=at(day, 8, 0), end=at(day, 15, 0), location_id=loc["school"],
-            movable=False,
-        ))
+            needs_transport=True, movable=False,
+        )
+        session.add(school)
+        session.flush()
+        session.add(Assignment(event_id=school.id, member_id=who[collector].id, kind="pickup"))
+
+
+def _working_until(day: date, parent: str, collector: str):
+    """When this parent's day ends. Early when they are collecting, so the 3 o'clock is reachable."""
+    if parent == collector:
+        hour, minute = COLLECTION_DAY_END[parent]
+        return at(day, hour, minute)
+    if day == THURSDAY:
+        return at(day, 15, 45)
+    return at(day, 16, 30) if parent == "Dad" else at(day, 16, 0)
 
 
 def _add_thursday_scenario(session: Session, family: Family, loc: dict[str, int], who: dict[str, Member]):
@@ -163,6 +222,55 @@ def _add_thursday_scenario(session: Session, family: Family, loc: dict[str, int]
     ))
 
 
+def _add_tuesday_cricket(session: Session, family: Family, loc: dict[str, int], who: dict[str, Member]):
+    """Mom's one late-afternoon lift, and the only one Dad can take off her.
+
+    Without it the week admits no feasible Dad/Mom swap at all: every other lift Mom holds is the
+    3 o'clock school run or 4:45 piano, and Dad is at the office until 4:30 on the days he is not
+    collecting, so he can never reach the leg he takes back. Tuesday is the one weekday Mom does not
+    collect from school, which keeps this her only lift that day -- a day holding two of her lifts
+    would make the swap ambiguous and `request_swap` would rightly ask which one.
+    """
+    cricket = Event(
+        family_id=family.id, member_ids=[who["Aarav"].id], title="cricket practice", category="activity",
+        start=at(TUESDAY, 17, 0), end=at(TUESDAY, 18, 0), location_id=loc["cricket nets"],
+        needs_transport=True, movable=True,
+    )
+    session.add(cricket)
+    session.flush()
+    session.add(Assignment(event_id=cricket.id, member_id=who["Mom"].id, kind="pickup"))
+
+
+def _add_weekend(session: Session, family: Family, loc: dict[str, int], who: dict[str, Member]):
+    """Saturday and Sunday, so the day the demo is given on is never an empty day.
+
+    Deliberately easy: nobody works and nobody is at school, so the one lift is reachable from home
+    by either parent and the week's only unreachable lift stays Thursday's. A weekend that broke
+    would move the headline off the scenario the demo is built on.
+    """
+    match = Event(
+        family_id=family.id, member_ids=[who["Aarav"].id], title="football match", category="activity",
+        start=at(SATURDAY, 10, 0), end=at(SATURDAY, 12, 0), location_id=loc["football ground"],
+        needs_transport=True, movable=False,
+    )
+    lunch = Event(
+        family_id=family.id,
+        member_ids=[who[name].id for name in ("Dad", "Mom", "Aarav", "Anaya", "Grandpa")],
+        title="lunch at grandpa's", category="other", start=at(SUNDAY, 13, 0), end=at(SUNDAY, 15, 0),
+        location_id=loc["grandpa home"], movable=False,
+    )
+    # Feeds the science project task due Friday morning, so "what am I forgetting" has a weekend
+    # answer as well as a weekday one.
+    study = Event(
+        family_id=family.id, member_ids=[who["Aarav"].id], title="science project work",
+        category="study", start=at(SUNDAY, 16, 0), end=at(SUNDAY, 18, 0), location_id=loc["home"],
+        movable=True,
+    )
+    session.add_all([match, lunch, study])
+    session.flush()
+    session.add(Assignment(event_id=match.id, member_id=who["Dad"].id, kind="pickup"))
+
+
 def _add_rules(session: Session, family: Family, who: dict[str, Member]):
     parent = who["Mom"].id
     rules = [
@@ -192,6 +300,8 @@ def build_demo_family(session: Session) -> Family:
     who = _add_members(session, family, loc)
     _add_work_and_school(session, family, loc, who)
     _add_thursday_scenario(session, family, loc, who)
+    _add_tuesday_cricket(session, family, loc, who)
+    _add_weekend(session, family, loc, who)
     _add_rules(session, family, who)
     session.commit()
     return family
@@ -200,16 +310,38 @@ def build_demo_family(session: Session) -> Family:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build the LifePilot demo family.")
     parser.add_argument("--seed-db", action="store_true", help="write to DATABASE_URL (or in-memory SQLite)")
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="drop everything first. Needed to move the demo week on; forgets any linked Gmail.",
+    )
     args = parser.parse_args()
     if not args.seed_db:
         parser.error("nothing to do: pass --seed-db")
 
     engine = make_engine()
     factory = make_session_factory(engine, create=True)
+    # render_as_string masks the password; str(url) would print it in cleartext.
+    target = engine.url.render_as_string(hide_password=True)
+
+    if args.reset:
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
+        print(f"dropped and recreated every table in {target}")
+
     with factory() as session:
+        # Seeding twice used to append a second family, each with its own "Dad". `resolve_viewer`
+        # takes the first member of that name, so the newer family became unreachable and the demo
+        # silently kept answering from the older, staler week. Refusing is the whole fix.
+        existing = session.scalars(sa.select(Family)).first()
+        if existing is not None:
+            raise SystemExit(
+                f"{target} already holds family {existing.id} ({existing.name}). Seeding again "
+                "would add a second family with the same names, and the first one would keep "
+                "answering. Pass --reset to replace it; that also forgets any linked Gmail."
+            )
+
         family = build_demo_family(session)
-        # render_as_string masks the password; str(url) would print it in cleartext.
-        target = engine.url.render_as_string(hide_password=True)
         print(f"seeded family {family.id} ({family.name}) into {target}")
 
 

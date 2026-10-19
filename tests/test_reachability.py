@@ -64,7 +64,7 @@ def by_name(candidates) -> dict[str, Candidate]:
 def test_dad_cannot_reach_the_pickup_and_the_reason_says_why():
     who = by_name(assess(PICKUP, PEOPLE, [REVIEW, PIANO_CLASS, FOOTBALL], TRAVEL, DRIVEN, ELIGIBILITY))
     assert who["Dad"].reachable is False
-    assert who["Dad"].reason == "arrives 17:25, needs 17:00"
+    assert who["Dad"].reason == "arrives 5:25 PM, needs 5 PM"
     assert who["Dad"].arrival == at(17, 25)
 
 
@@ -114,8 +114,8 @@ def test_the_return_leg_is_checked_too():
         assess(PICKUP, PEOPLE, [PIANO_CLASS, FOOTBALL, dinner], TRAVEL, DRIVEN, ELIGIBILITY)
     )
     assert who["Mom"].reachable is False
-    assert "would reach parents evening at 17:45" in who["Mom"].reason
-    assert "starts 17:10" in who["Mom"].reason
+    assert "would reach parents evening at 5:45 PM" in who["Mom"].reason
+    assert "starts 5:10 PM" in who["Mom"].reason
 
 
 def test_an_unknown_route_is_refused_not_guessed():
@@ -144,4 +144,4 @@ def test_someone_busy_at_that_exact_moment_is_ruled_out_before_any_travel_maths(
     straddling = Commitment(15, "late meeting", at(16, 30), at(17, 30), MOM_OFFICE, (MOM.id,))
     who = by_name(assess(PICKUP, [MOM], [FOOTBALL, straddling], TRAVEL, {}, ()))
     assert who["Mom"].reachable is False
-    assert who["Mom"].reason == "is at late meeting until 17:30"
+    assert who["Mom"].reason == "is at late meeting until 5:30 PM"

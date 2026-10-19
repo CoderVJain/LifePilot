@@ -38,7 +38,7 @@ def test_the_two_changes_are_the_ones_a_parent_would_expect(week):
     assert "cannot get there in time" in changes["assign"].reason
 
     assert changes["move"].title == "science project block"
-    assert changes["move"].was.startswith("Thursday 20:00")
+    assert changes["move"].was.startswith("Thursday 8 PM")
 
 
 def test_the_repair_actually_fixes_what_was_broken(week):
@@ -141,9 +141,14 @@ def _apply(week: Week, result) -> Week:
 
 
 def _parse(label: str, near: datetime) -> datetime:
-    """Turn "Thursday 19:30" back into a datetime in the same week."""
-    day_name, clock = label.split(" ")
-    hour, minute = (int(part) for part in clock.split(":"))
+    """Turn "Thursday 7:30 PM" back into a datetime in the same week.
+
+    Spoken, not formatted: these labels are read aloud and shown on the proposal card.
+    """
+    day_name, clock, meridiem = label.split(" ")
+    said, _, said_minute = clock.partition(":")
+    hour = int(said) % 12 + (12 if meridiem == "PM" else 0)
+    minute = int(said_minute or 0)
     days = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
     shift = days.index(day_name) - near.weekday()
     return (near + timedelta(days=shift)).replace(hour=hour, minute=minute)

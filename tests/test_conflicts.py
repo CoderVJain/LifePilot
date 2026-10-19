@@ -75,14 +75,14 @@ def test_the_thursday_pickup_is_reported_unreachable_for_the_assigned_parent():
     assert len(found) == 1
     conflict = found[0]
     assert conflict.assigned_to == "Dad"
-    assert "arrives 17:25, needs 17:00" in conflict.detail
+    assert "arrives 5:25 PM, needs 5 PM" in conflict.detail
     assert conflict.could_cover == ("Mom",)
 
 
 def test_every_candidate_reason_is_recorded_for_why_not_questions():
     conflict = next(c for c in detect(week()) if c.kind == "unreachable")
     reasons = {c.name: c.reason for c in conflict.candidates}
-    assert reasons["Dad"] == "arrives 17:25, needs 17:00"
+    assert reasons["Dad"] == "arrives 5:25 PM, needs 5 PM"
     assert reasons["Aarav"] == "cannot drive"
     assert reasons["Grandpa"] == "rule: only when no parent is free"
     assert "10 minutes away" in reasons["Mom"]
@@ -91,7 +91,7 @@ def test_every_candidate_reason_is_recorded_for_why_not_questions():
 def test_the_late_project_block_is_a_rule_clash():
     found = [c for c in detect(week()) if c.kind == "rule_clash"]
     assert len(found) == 1
-    assert "runs to 21:30, past your rule of 21:00" in found[0].detail
+    assert "runs to 9:30 PM, past your rule of 9 PM" in found[0].detail
 
 
 def test_no_eligible_adult_is_distinguished_from_simply_unreachable():
@@ -116,7 +116,7 @@ def test_when_nobody_can_reach_it_at_all():
         if c.kind == "unreachable"
     ]
     assert len(found) == 1
-    assert "nobody can get football pickup covered at 17:00" in found[0].detail
+    assert "nobody can get football pickup covered at 5 PM" in found[0].detail
 
 
 def test_an_actual_overlap_is_still_caught():

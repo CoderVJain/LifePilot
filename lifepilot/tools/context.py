@@ -42,6 +42,19 @@ def get_family(session: Session, speaker: str) -> dict:
     }
 
 
+def _tasks_shown(tasks, viewer: Viewer, names: dict[int, str], wanted: str) -> list[dict]:
+    """The tasks this viewer may see, narrowed by name if one was asked for.
+
+    Narrowing by title used to apply to events alone, so "when is the fancy dress competition" could
+    not find a task however plainly it was named. As with events, it happens after the visibility
+    rules, never instead of them.
+    """
+    shown = [view for view in (task_view(t, viewer, names) for t in tasks) if view is not None]
+    if wanted:
+        shown = [view for view in shown if wanted in view["title"].lower()]
+    return shown
+
+
 def _resolve_subject(session: Session, family_id: int, about: str) -> Member | None:
     """Whose day is being asked about. "me" and "my" mean whoever is speaking."""
     wanted = about.strip().lower()
@@ -99,6 +112,7 @@ def get_schedule(
     end: date,
     about: str | None = None,
     at: str | None = None,
+    title: str | None = None,
 ) -> dict:
     """Events and tasks between two dates, inclusive, as this speaker may see them.
 
@@ -111,6 +125,10 @@ def get_schedule(
     and answering it with the whole day leaves the asker to do the work themselves. What is running
     then is reported separately from what merely starts or finishes then, because "football finishes
     at five" is the difference between free and not.
+
+    `title` narrows it to one named thing. "What is the piano class timing and day" is a question
+    about the piano class; without this it fell through to reciting the whole week, and the answer a
+    tester wanted was in there somewhere behind nineteen other events.
 
     Narrowing happens after the visibility rules, never instead of them: a child asking about a
     parent still sees "Busy", not the meeting.
@@ -128,9 +146,26 @@ def get_schedule(
         m.id: m.name
         for m in session.scalars(sa.select(Member).where(Member.family_id == family_id))
     }
-    driven = set(
-        session.scalars(sa.select(Assignment.event_id).where(Assignment.member_id == viewer.member_id))
-    )
+    # Event id to "pickup" or "drop", not just the ids: which one it is decides the sentence. A
+    # parent down for the football pickup is at the gate at five, not at football for an hour.
+    driven = {
+        event_id: kind
+        for event_id, kind in session.execute(
+            sa.select(Assignment.event_id, Assignment.kind).where(
+                Assignment.member_id == viewer.member_id
+            )
+        )
+    }
+
+    # Who is down to drive each event, whoever is asking. Coordination information: a parent asking
+    # when they collect Aarav needs the name as much as the hour.
+    assigned_to = {
+        event_id: member_names[member_id]
+        for event_id, member_id in session.execute(
+            sa.select(Assignment.event_id, Assignment.member_id)
+        )
+        if member_id in member_names
+    }
 
     events = session.scalars(
         sa.select(Event)
@@ -149,22 +184,38 @@ def get_schedule(
             session.scalars(sa.select(Assignment.event_id).where(Assignment.member_id == subject.id))
         )
         events = [e for e in events if subject.id in (e.member_ids or []) or e.id in theirs]
-        tasks = [t for t in tasks if t.owner_id == subject.id]
+        # An unowned task is the household's, so it survives narrowing to a parent. Dropping it
+        # meant a task extracted from a school email -- which often names no child we recognise --
+        # existed in the database and appeared in nobody's answer.
+        tasks = [
+            t
+            for t in tasks
+            if t.owner_id == subject.id or (t.owner_id is None and subject.role == "parent")
+        ]
 
     moment = _resolve_moment(at, start)
     shown = [
         view
-        for view in (event_view(e, viewer, driven, location_names, member_names) for e in events)
+        for view in (
+            event_view(e, viewer, driven, location_names, member_names, assigned_to) for e in events
+        )
         if view is not None
     ]
+
+    # After the visibility rules, so narrowing can never widen what somebody may see. A redacted
+    # event reads as "Busy", and matching on that would leak which meeting it was.
+    wanted = (title or "").strip().lower()
+    if wanted:
+        shown = [v for v in shown if not v.get("redacted") and wanted in v["title"].lower()]
 
     return {
         "speaker": {"name": viewer.name, "role": viewer.role},
         "from": start.isoformat(),
         "to": end.isoformat(),
         "about": subject.name if subject is not None else None,
+        "title": title if wanted else None,
         "at": moment.isoformat(timespec="minutes") if moment else None,
         "at_that_time": _at_that_time(shown, moment) if moment else None,
         "events": shown,
-        "tasks": [view for view in (task_view(t, viewer) for t in tasks) if view is not None],
+        "tasks": _tasks_shown(tasks, viewer, member_names, wanted),
     }

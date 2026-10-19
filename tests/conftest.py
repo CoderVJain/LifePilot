@@ -24,3 +24,19 @@ def _offline_database(request):
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.delenv("DATABASE_URL", raising=False)
     request.addfinalizer(monkeypatch.undo)
+
+
+@pytest.fixture(autouse=True)
+def _empty_route_cache():
+    """The routing cache is module-level, so one test's fake answer can serve another's question.
+
+    A test that routes "what is my schedule" through a fake model left `get_family` cached under that
+    exact phrase; the end-to-end transcripts then asked the same question and got the fake answer,
+    and failed only when run in the same session. Order-dependent failures are expensive to read, so
+    the cache starts and ends every test empty.
+    """
+    from simulator.agent import _route_cache
+
+    _route_cache.clear()
+    yield
+    _route_cache.clear()

@@ -37,6 +37,7 @@ from ortools.sat.python import cp_model
 
 from lifepilot.engine.conflicts import Week
 from lifepilot.engine.reachability import HANDOVER_MINUTES, assess
+from lifepilot_shared.speech import say_time
 
 # See the module docstring: neither of these is a tuning knob.
 MAX_SOLVE_SECONDS = 5.0
@@ -351,8 +352,26 @@ def _keep_current_assignees(week: Week, plan: _Plan) -> list[cp_model.IntVar]:
     return kept
 
 
+def _balances_load(week: Week) -> bool:
+    """Whether this family actually asked for the load to be evened out.
+
+    `load_balance` is a soft rule a parent states once ("try to keep pickups even between us"), and
+    it is the only rule the solver was applying whether or not it had been stated. A rule that is
+    always on is not a rule, differentiator #8 says the solver enforces what the family stated, and
+    experiment 6 cannot measure with-versus-without a term that is always on.
+    """
+    return any(rule["type"] == "load_balance" for rule in week.rules)
+
+
 def _load_imbalance(model: cp_model.CpModel, week: Week, plan: _Plan):
-    """Spread between the busiest and least busy adult, as a tie-breaker only."""
+    """Spread between the busiest and least busy adult, as a tie-breaker only.
+
+    Zero when the family stated no `load_balance` rule, which leaves the deterministic tie-break to
+    choose between plans that cost the same.
+    """
+    if not _balances_load(week):
+        return 0
+
     adults = [p for p in week.people if p.can_drive]
     if len(adults) < 2 or not plan.covers:
         return 0
@@ -469,7 +488,7 @@ def _minutes(base: datetime, moment: datetime) -> int:
 
 def _clock(base: datetime, minutes: int) -> str:
     moment = base + timedelta(minutes=minutes)
-    return f"{DAYS[moment.weekday()]} {moment:%H:%M}"
+    return f"{DAYS[moment.weekday()]} {say_time(moment)}"
 
 
 def _clock_minutes(value: str) -> int:

@@ -26,13 +26,20 @@ class Viewer:
 def event_view(
     event,
     viewer: Viewer,
-    driven_event_ids: set[int],
+    driven_event_ids: set[int] | dict[int, str],
     location_names: dict[int, str],
     member_names: dict[int, str] | None = None,
+    assigned_to: dict[int, str] | None = None,
 ) -> dict | None:
-    """One event as this viewer may see it, or None when they may not see it at all."""
+    """One event as this viewer may see it, or None when they may not see it at all.
+
+    `driven_event_ids` may be a mapping of event id to "pickup" or "drop", in which case the view says
+    which. The difference is the whole content of the sentence: a parent who is down for the football
+    pickup is not at football for an hour, they are at the gate at five.
+    """
     attending = viewer.member_id in event.member_ids
     driving = event.id in driven_event_ids
+    lift = driven_event_ids.get(event.id) if isinstance(driven_event_ids, dict) else None
 
     if viewer.role == "caregiver" and not driving:
         return None
@@ -58,6 +65,13 @@ def event_view(
         "location": location_names.get(event.location_id),
         "needs_transport": event.needs_transport,
         "movable": event.movable,
+        # True when this is in the viewer's day because they are driving, not attending. Saying
+        # "school 8 AM to 3 PM" to the parent doing the pickup implies they are there all day.
+        "driving": driving and not attending,
+        "lift": lift if driving and not attending else None,
+        # Who is down to drive, whoever is asking. "At what time do I collect Aarav" is answered by
+        # naming the person and the hour; "someone has to collect them" answers neither half.
+        "lift_by": (assigned_to or {}).get(event.id),
         "member_ids": list(event.member_ids),
         # Whose event this is. Without it a caller cannot tell Mom's work from Dad's, and anything
         # summarising the week will attach every event to whoever asked.
@@ -66,8 +80,12 @@ def event_view(
     }
 
 
-def task_view(task, viewer: Viewer) -> dict | None:
-    """Tasks are private to their owner and to parents. Caregivers see none."""
+def task_view(task, viewer: Viewer, names: dict[int, str] | None = None) -> dict | None:
+    """Tasks are private to their owner and to parents. Caregivers see none.
+
+    `owner` is the name, not just the id: a task is read aloud, and "Aarav needs a costume" needs a
+    person rather than a foreign key. A task with no owner is the household's.
+    """
     if viewer.role == "caregiver":
         return None
     if viewer.role == "child" and task.owner_id != viewer.member_id:
@@ -78,6 +96,7 @@ def task_view(task, viewer: Viewer) -> dict | None:
         "category": task.category,
         "due": _iso(task.due),
         "owner_id": task.owner_id,
+        "owner": (names or {}).get(task.owner_id),
         "status": task.status,
         "source": task.source,
     }

@@ -7,13 +7,23 @@ bill afterwards. `EVAL_MAX_CALLS` is the hard ceiling.
 import argparse
 import os
 
-from eval import experiment1, experiment2, experiment4
+from eval import (
+    experiment1,
+    experiment2,
+    experiment3,
+    experiment4,
+    experiment5,
+    experiment6,
+)
 from eval.scenarios import build
 
 EXPERIMENTS = {
     1: ("conflict detection", experiment1.run),
     2: ("plan feasibility", experiment2.run),
+    3: ("family rules, stored versus not", experiment3.run),
     4: ("does the answer answer the question", experiment4.run),
+    5: ("what am I forgetting", experiment5.run),
+    6: ("load balancing", experiment6.run),
 }
 
 
@@ -26,6 +36,9 @@ def main() -> None:
         help="include the model baselines (costs money; free without it)",
     )
     parser.add_argument("--per-kind", type=int, default=5, help="scenarios per planted kind")
+    parser.add_argument(
+        "--no-figures", action="store_true", help="write the CSVs only, skip the PNGs"
+    )
     args = parser.parse_args()
 
     with_llm = args.with_llm or os.environ.get("EVAL_WITH_LLM") == "1"
@@ -41,6 +54,14 @@ def main() -> None:
         name, run = EXPERIMENTS[number]
         print(f"\n=== experiment {number}: {name} ===")
         run(with_llm=with_llm, per_kind=args.per_kind)
+
+    if not args.no_figures:
+        # Drawn from the CSVs just written, so a figure can never disagree with a published
+        # number. CLAUDE.md promises both out of one command.
+        from eval.figures import build_all
+
+        print("\n=== figures ===")
+        build_all()
 
 
 def _announce(chosen: list[int], with_llm: bool, per_kind: int) -> None:

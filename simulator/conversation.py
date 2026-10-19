@@ -12,12 +12,13 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 from lifepilot_shared.clock import today as clock_today
-from lifepilot_shared.speech import plural, say_list, say_span, say_window
-from lifepilot_shared.week import demo_week
+from lifepilot_shared.speech import plural, say_lift, say_list, say_span, say_window
+from lifepilot_shared.week import demo_span
 
-# The week the seeded data covers. Follows the real calendar so "tomorrow" means something; pinned
-# by LIFEPILOT_WEEK=fixed for tests and the recorded demo.
-WEEK_START, WEEK_END = demo_week()
+# Every day the seeded data covers: the weekend running in, then Monday to Friday. Follows the real
+# calendar so "today" and "tomorrow" mean something whichever day the demo is given on; pinned by
+# LIFEPILOT_WEEK=fixed for tests and the recorded demo.
+WEEK_START, WEEK_END = demo_span()
 
 HELP = (
     "Try: any problems this week, who is in the family, what is happening this week, "
@@ -82,9 +83,10 @@ def _window(asked: str) -> tuple[date, date]:
 
 
 def _named_weekday(index: int) -> date | None:
-    """The day with that name inside the loaded week, so "Thursday" means the demo's Thursday."""
-    for day in (WEEK_START + timedelta(days=offset) for offset in range(7)):
-        if day.weekday() == index and WEEK_START <= day <= WEEK_END:
+    """The day with that name inside the loaded window, so "Thursday" means the demo's Thursday."""
+    span = (WEEK_END - WEEK_START).days
+    for day in (WEEK_START + timedelta(days=offset) for offset in range(span + 1)):
+        if day.weekday() == index:
             return day
     return None
 
@@ -179,10 +181,11 @@ def _say_event(event: dict, with_name: bool) -> str:
     """One event as it would be said. The span, because "timing" is a question about hours."""
     when = say_span(event["start"], event.get("end"), with_day=False)
     members = event.get("members") or []
+    lift = f", and {say_lift(members)}" if event.get("needs_transport") else ""
     if not (with_name and members):
-        return f"{event['title']} {when}"
+        return f"{event['title']} {when}{lift}"
     has = "have" if len(members) > 1 else "has"
-    return f"{say_list(members)} {has} {event['title']} {when}"
+    return f"{say_list(members)} {has} {event['title']} {when}{lift}"
 
 
 def _schedule(

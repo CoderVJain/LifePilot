@@ -23,6 +23,7 @@
   let speaker = "Dad";
   let socket = null;
   let modelCalls = 0;
+  let cachedTokens = 0;
   let costUsd = 0;
 
   /* ---------- connection ---------- */
@@ -70,23 +71,37 @@
   }
 
   function receiveReply(payload) {
-    addTurn("agent", payload.speak, payload.cards || []);
+    // The server decides who is speaking: it asks at the start of every session, because a real
+    // Alexa+ add-on is not told which household member is talking.
+    if (payload.speaker) setSpeaker(payload.speaker);
+    addTurn("agent", payload.speak, payload.cards || [], payload.proactive);
     recordTrace(payload.debug || {});
     speak(payload.speak);
   }
 
   /* ---------- conversation rendering ---------- */
 
-  function addTurn(from, text, cards = []) {
+  function addTurn(from, text, cards = [], proactive = null) {
     if (empty && empty.parentNode) empty.remove();
 
     const turn = document.createElement("div");
     turn.className = `turn from-${from}`;
+    if (proactive) turn.classList.add("is-proactive");
 
     const who = document.createElement("span");
     who.className = "who";
     who.textContent = from === "person" ? speaker : "LifePilot";
     turn.appendChild(who);
+
+    // Said without being asked. A real add-on cannot do this, so the label is not decoration.
+    if (proactive) {
+      const mark = document.createElement("span");
+      mark.className = "sim-badge";
+      mark.textContent = proactive === "warning"
+        ? "spoke first — simulated"
+        : "reminder — simulated";
+      turn.appendChild(mark);
+    }
 
     const bubble = document.createElement("div");
     bubble.className = "bubble";
@@ -267,7 +282,7 @@
           .filter((c) => !c.reachable)
           .forEach((c) => {
             const li = document.createElement("li");
-            li.textContent = `${c.name}: ${c.reason}`;
+            li.textContent = `${c.name}: ${sayReason(c.reason)}`;
             list.appendChild(li);
           });
         why.appendChild(list);
@@ -364,12 +379,22 @@
     }
   }
 
+  // The stored reason is machine-readable -- the server classifies a rule clash by its "rule:"
+  // prefix -- so it is reworded for the screen the same way the spoken answer rewords it.
+  function sayReason(reason) {
+    const text = String(reason || "");
+    return text.startsWith("rule:")
+      ? `your rule says ${text.slice("rule:".length).trim()}`
+      : text;
+  }
+
   function renderWhatIfCard(card) {
     const safe = card.ripple.safe;
     const { el, body } = cardShell(safe ? "that works" : "that breaks things", card.title);
 
     const rows = [
       ["would break", card.ripple.breaks, "is-problem"],
+      ["gets worse", card.ripple.worsens, "is-problem"],
       ["would clear", card.ripple.resolves, "is-resolved"],
       ["already broken", card.ripple.unchanged, "is-muted"],
     ];
@@ -503,8 +528,10 @@
 
   function recordTrace(debug) {
     modelCalls += debug.model_calls || 0;
+    cachedTokens += debug.cached_tokens || 0;
     costUsd += debug.estimated_cost_usd || 0;
-    meter.textContent = `${modelCalls} model calls · $${costUsd.toFixed(6)}`;
+    const cached = cachedTokens ? ` · ${cachedTokens} cached` : "";
+    meter.textContent = `${modelCalls} model calls${cached} · $${costUsd.toFixed(6)}`;
 
     if (drawerEmpty && drawerEmpty.parentNode) drawerEmpty.remove();
 
@@ -536,13 +563,40 @@
 
   /* ---------- speaker switcher ---------- */
 
+  // Shared, because the server also decides who is speaking: it asks at the start of the session,
+  // and the answer has to move the switcher or the two disagree about who is in the room.
+  function setSpeaker(name) {
+    if (!name || name === speaker) return;
+    speaker = name;
+    document.querySelectorAll(".speaker").forEach((button) => {
+      const mine = button.dataset.speaker === name;
+      button.classList.toggle("is-active", mine);
+      button.setAttribute("aria-checked", String(mine));
+    });
+    pointLinkAtSpeaker();
+  }
+
+  // The sign-in is per parent, so the one non-voice step has to follow the switcher.
+  const linkGmail = document.getElementById("linkGmail");
+  function pointLinkAtSpeaker() {
+    linkGmail.href = "/link-gmail?speaker=" + encodeURIComponent(speaker);
+  }
+  pointLinkAtSpeaker();
+
+  // The switcher stands in for a second device, so switching has to look like one. Leaving Dad and
+  // Mom's swap negotiation on screen in Aarav's session contradicts the role view the server is
+  // enforcing underneath -- the #9 shot was undercut by its own transcript. The debug drawer is
+  // kept: it is the engineer's view of the whole run, not anybody's session.
+  function clearThread() {
+    thread.textContent = "";
+  }
+
   document.querySelectorAll(".speaker").forEach((button) => {
     button.addEventListener("click", () => {
-      document.querySelectorAll(".speaker").forEach((other) => {
-        other.classList.toggle("is-active", other === button);
-        other.setAttribute("aria-checked", String(other === button));
-      });
-      speaker = button.dataset.speaker;
+      const was = speaker;
+      setSpeaker(button.dataset.speaker);
+      if (speaker === was) return;
+      clearThread();
       addTurn("agent", `Now speaking as ${speaker}. You will see what ${speaker} is allowed to see.`);
     });
   });

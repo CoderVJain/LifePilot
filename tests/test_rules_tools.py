@@ -148,7 +148,7 @@ def test_a_new_rule_immediately_changes_what_is_broken(session):
     after = detect_conflicts(session, "Dad", *window)["conflicts"]
 
     assert len(after) > len(before)
-    new = [c for c in after if c["kind"] == "rule_clash" and "16:30" in c["detail"]]
+    new = [c for c in after if c["kind"] == "rule_clash" and "4:30 PM" in c["detail"]]
     assert new, "the rule the parent just stated did not reach the solver"
 
 

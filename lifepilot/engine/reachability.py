@@ -14,6 +14,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
+from lifepilot_shared.speech import say_time
+
 # Minutes to hand the child over: park, find them, get them in the car. Applied on the return leg so
 # an assignment cannot look feasible by assuming a teleport.
 HANDOVER_MINUTES = 5
@@ -281,4 +283,6 @@ def reachable(candidates: Sequence[Candidate]) -> list[Candidate]:
 
 
 def _clock(moment: datetime) -> str:
-    return moment.strftime("%H:%M")
+    """Spoken, not formatted. These reasons are read aloud and shown on cards: "arrives 17:25" is
+    a correct answer in a form nobody says."""
+    return say_time(moment)

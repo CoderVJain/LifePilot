@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 from lifepilot.engine.conflicts import Conflict, Week
 from lifepilot.engine.reachability import Commitment
+from lifepilot_shared.speech import say_time
 
 RUNS_LATE = "runs_late"
 NEW_EVENT = "new_event"
@@ -31,10 +32,18 @@ class Ripple:
     breaks: tuple[Conflict, ...] = ()
     resolves: tuple[Conflict, ...] = ()
     unchanged: tuple[Conflict, ...] = ()
+    worsens: tuple[Conflict, ...] = ()
 
     @property
     def is_safe(self) -> bool:
-        return not self.breaks
+        """Nothing broke and nothing got worse.
+
+        `worsens` belongs here because a standing problem the change deepens is not safety. Dad's
+        football pickup was already unreachable at 17:25; letting his review run to 17:30 means he
+        cannot go at all, and calling that "nothing new breaks" was the answer the browser run
+        caught.
+        """
+        return not self.breaks and not self.worsens
 
     def as_dict(self) -> dict:
         return {
@@ -42,6 +51,7 @@ class Ripple:
             "breaks": [c.as_dict() for c in self.breaks],
             "resolves": [c.as_dict() for c in self.resolves],
             "unchanged": [c.as_dict() for c in self.unchanged],
+            "worsens": [c.as_dict() for c in self.worsens],
         }
 
 
@@ -61,13 +71,20 @@ def apply_hypothetical(week: Week, change: dict) -> Week:
 
 
 def ripple(before: list[Conflict], after: list[Conflict]) -> Ripple:
-    """What changed between the two weeks, keyed on the problem rather than its wording."""
+    """What changed between the two weeks, keyed on the problem rather than its wording.
+
+    A problem present both times is split on its `detail`: that sentence is generated from the same
+    data every time, so if it reads differently the change reached this problem even though its key
+    did not move.
+    """
     was = {_key(c): c for c in before}
     now = {_key(c): c for c in after}
+    both = [(c, was[k]) for k, c in now.items() if k in was]
     return Ripple(
         breaks=tuple(c for k, c in now.items() if k not in was),
         resolves=tuple(c for k, c in was.items() if k not in now),
-        unchanged=tuple(c for k, c in now.items() if k in was),
+        unchanged=tuple(c for c, earlier in both if c.detail == earlier.detail),
+        worsens=tuple(c for c, earlier in both if c.detail != earlier.detail),
     )
 
 
@@ -76,6 +93,31 @@ def _key(conflict: Conflict) -> tuple:
 
 
 # --------------------------------------------------------------------------- the changes
+
+
+#: People round a time when they speak: a 15:45 review is "my four o'clock". Half an hour each way
+#: covers that without reaching the next thing in an ordinary diary.
+ROUNDING = timedelta(minutes=30)
+
+
+def _starting_around(week: Week, moment: datetime, mine: set[int]) -> Commitment | None:
+    """The asker's own commitment starting at or near `moment`, exact first, else the closest.
+
+    Restricted to the asker on purpose. A bare time used to fall back to whoever else had something
+    then, so "what if my four o'clock runs late" answered about a child's 16:00 project -- and
+    reported that nothing broke, having quietly shortened it. A time with no title is a claim about
+    one's own diary; naming an event is how you ask about somebody else's.
+
+    An empty `mine` means the caller never said who is asking, so it cannot be claiming ownership.
+    """
+    ours = [c for c in week.commitments if mine & set(c.member_ids)] if mine else week.commitments
+    exact = [c for c in ours if c.start == moment]
+    if exact:
+        return min(exact, key=lambda c: c.id)
+    near = [c for c in ours if abs(c.start - moment) <= ROUNDING]
+    if near:
+        return min(near, key=lambda c: (abs(c.start - moment), c.id))
+    return None
 
 
 def _find(week: Week, change: dict) -> Commitment:
@@ -87,17 +129,19 @@ def _find(week: Week, change: dict) -> Commitment:
         return found
 
     # "my four o'clock" names a time, not a title, so a start time identifies an event too.
-    # Whoever is asking is preferred: their four o'clock, not somebody else's.
     mine = set(change.get("for_member") or ())
     at = change.get("at") or change.get("start")
+    title = (change.get("title") or "").strip().lower()
     if at:
         moment = _moment(at, like=None)
-        by_time = [c for c in week.commitments if c.start == moment]
-        preferred = [c for c in by_time if mine & set(c.member_ids)] or by_time
-        if preferred:
-            return min(preferred, key=lambda c: c.id)
+        found = _starting_around(week, moment, mine)
+        if found is not None:
+            return found
+        if not title:
+            raise UnknownHypothetical(
+                f"You have nothing starting around {say_time(moment)} that day."
+            )
 
-    title = (change.get("title") or "").strip().lower()
     if not title:
         raise UnknownHypothetical("I need to know which event you mean.")
     matches = [c for c in week.commitments if title in c.title.lower()]

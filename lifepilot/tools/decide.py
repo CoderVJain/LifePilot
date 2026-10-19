@@ -4,16 +4,18 @@ Both read the reasons reachability already recorded. "Why not Grandpa?" is a loo
 judgement and not a model call, so the answer cannot contradict the decision it explains.
 """
 
-from datetime import date
+from datetime import date, datetime
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from lifepilot.db.models import Assignment, Member, Rule
 from lifepilot.engine.allocation import rank
-from lifepilot.engine.reachability import assess
+from lifepilot.engine.reachability import assess, reachable
 from lifepilot.tools.context import resolve_viewer
 from lifepilot.tools.detect_conflicts import load_week
+from lifepilot_shared.clock import today as clock_today
+from lifepilot_shared.speech import say_list, say_reason
 
 
 def _family_id(session: Session, member_id: int) -> int:
@@ -58,14 +60,27 @@ def _find_need(week, event_id: int | None, title: str | None):
         wanted = title.strip().lower()
         by_title = [n for n in week.needs if wanted in n.title.lower()]
         if by_title:
-            return min(by_title, key=lambda n: n.moment)
+            return _soonest(by_title)
 
         children = {p.id: p.name.lower() for p in week.people}
         by_child = [n for n in week.needs if children.get(n.child_id) == wanted]
         if by_child:
-            return min(by_child, key=lambda n: n.moment)
+            return _soonest(by_child)
 
     return week.needs[0] if len(week.needs) == 1 else None
+
+
+def _soonest(needs: list):
+    """The next of these lifts, preferring one that has not happened yet.
+
+    Plain `min` by moment takes the earliest in the window, and the window reaches back over the
+    weekend running into the week. Asked on a Thursday who should collect Aarav, that answered about
+    Saturday's match -- a lift already driven, by an adult who could reach that one and cannot reach
+    the one being asked about. Nobody asks who should cover a pickup that is over.
+    """
+    start_of_today = datetime.combine(clock_today(), datetime.min.time())
+    upcoming = [n for n in needs if n.moment >= start_of_today]
+    return min(upcoming or needs, key=lambda n: n.moment)
 
 
 def suggest_responsible(
@@ -172,10 +187,24 @@ def explain_choice(
             ),
         }
 
+    instead = [c.name for c in reachable(candidates)]
     return {
         "found": True,
         "person": match.name,
         "can_do_it": False,
         "reason": match.reason,
-        "say": f"Not {match.name}: {match.reason}.",
+        "could_instead": instead,
+        "say": _why_not(match.name, match.reason, instead),
     }
+
+
+def _why_not(name: str, reason: str, instead: list[str]) -> str:
+    """A refusal that reads as a sentence, and names who can instead.
+
+    "Not Grandpa: rule: only when no parent is free" was two colons and a fragment, and it is the
+    0:15-0:50 shot. Naming who can is the other half of the answer a parent wants.
+    """
+    because = say_reason(reason)
+    if instead:
+        return f"Not {name}, because {because}. {say_list(instead)} can."
+    return f"Not {name}, because {because}."

@@ -1,0 +1,14 @@
+{
+  "sender": "office@demo-school.invalid",
+  "subject": "School closed tomorrow",
+  "body": "Dear parents, the school will remain closed tomorrow, Thursday 9 October, because of heavy rains. Classes resume on Friday.\n\nThanks, the school office.",
+  "label": "closure",
+  "expected": [
+    {
+      "kind": "closure",
+      "title": "heavy rains",
+      "date": "2026-10-09"
+    }
+  ],
+  "note": "Written from a real tester's email (Oct 4, 2026). A closure asks nobody to do anything and still changes the week more than most tasks: no school means no school run."
+}

@@ -148,3 +148,27 @@ def test_a_child_may_ask_what_if_too(session):
     """Asking is not changing, so the role check is on writes, not on questions."""
     result = what_if(session, "Aarav", MONDAY, FRIDAY, {"kind": "cancelled", "title": "football practice"})
     assert result["understood"] is True
+
+
+def test_a_worsened_problem_is_spoken_rather_than_called_safe(session):
+    """The browser run's #5 line. "What if my 4 PM runs till 5:30" deepened Thursday's football
+    pickup from "Dad arrives 17:25" to "Dad is in a meeting until 17:30", and the spoken answer was
+    "That works. Nothing new breaks." The voice is the product, so it has to say what happened."""
+    said = what_if(
+        session, "Dad", MONDAY, FRIDAY,
+        {"kind": "runs_late", "at": "2026-10-08T16:00", "until": "17:30"},
+    )
+    assert said["understood"]
+    assert "that works" not in said["say"].lower()
+    assert "worse" in said["say"].lower()
+    assert "football" in said["say"].lower()
+
+
+def test_a_harmless_hypothetical_still_says_so(session):
+    """The other side: the safe answer must survive, or every what-if sounds like a warning."""
+    said = what_if(
+        session, "Dad", MONDAY, FRIDAY,
+        {"kind": "new_event", "title": "6pm meeting", "start": "2026-10-09T18:00",
+         "end": "2026-10-09T19:00"},
+    )
+    assert "nothing new breaks" in said["say"].lower()

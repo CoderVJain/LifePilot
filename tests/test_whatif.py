@@ -164,3 +164,97 @@ def test_whoever_is_asking_gets_their_own_event_when_a_time_is_ambiguous(week):
     )
     changed = [c for c in dad.commitments if c.end == datetime(2026, 10, 5, 18, 0)]
     assert changed and 1 in changed[0].member_ids
+
+
+def test_a_rounded_time_finds_the_askers_own_commitment(week):
+    """The demo's own #5 line, and it failed two ways at once. Thursday 16:00 holds Aarav's football
+    and Anaya's piano; Dad's review starts 15:45. Matching the start to the minute could never find
+    the review, and falling back to whoever else had a 16:00 answered about a child's diary -- which
+    is what the browser run caught. "My 4 PM" is how a 15:45 review is spoken."""
+    after = apply_hypothetical(
+        week,
+        {"kind": "runs_late", "at": "2026-10-08T16:00", "until": "17:30", "for_member": [1]},
+    )
+    review = next(c for c in after.commitments if c.title == "performance review")
+    assert review.end == datetime(2026, 10, 8, 17, 30)
+    football = next(c for c in after.commitments if c.title == "football practice")
+    piano = next(c for c in after.commitments if c.title == "piano class")
+    assert football.end == datetime(2026, 10, 8, 17, 0), "a child's event is not the asker's"
+    assert piano.end == datetime(2026, 10, 8, 16, 45)
+
+
+def test_a_bare_time_never_reaches_somebody_elses_event(week):
+    """Tuesday 17:00 is Aarav's cricket and Dad has nothing near it. Answering about the cricket
+    would be a confident answer to a question nobody asked; saying so is the honest reply."""
+    with pytest.raises(UnknownHypothetical) as refused:
+        apply_hypothetical(
+            week,
+            {"kind": "runs_late", "at": "2026-10-06T17:00", "until": "18:30", "for_member": [1]},
+        )
+    assert "nothing" in str(refused.value).lower()
+
+
+def test_a_named_title_still_reaches_another_persons_event(week):
+    """The restriction is on a bare time. "What if football is cancelled" is about Aarav's football,
+    asked by a parent, and must keep working."""
+    after = apply_hypothetical(
+        week, {"kind": "cancelled", "title": "football practice", "for_member": [1]}
+    )
+    assert not [c for c in after.commitments if c.title == "football practice"]
+
+
+def test_a_title_decides_when_the_asker_has_nothing_at_that_time(week):
+    """Both were given: the time finds nothing of theirs, so the title decides rather than refusing."""
+    after = apply_hypothetical(
+        week,
+        {"kind": "runs_late", "at": "2026-10-06T17:00", "title": "performance review",
+         "until": "17:30", "for_member": [1]},
+    )
+    review = next(c for c in after.commitments if c.title == "performance review")
+    assert review.end == datetime(2026, 10, 8, 17, 30)
+
+
+def test_a_problem_that_gets_worse_is_not_reported_as_unchanged(week):
+    """Found by re-testing #5 in the browser. Dad's football pickup was already unreachable -- he
+    arrived 17:25 for a 17:00 collection. Letting his review run to 17:30 means he cannot go at all,
+    yet the conflict keyed the same before and after, so it landed in `unchanged` and the spoken
+    answer was "That works. Nothing new breaks." A problem the change made worse is not unchanged."""
+    before = detect(week)
+    after = detect(
+        apply_hypothetical(
+            week,
+            {"kind": "runs_late", "at": "2026-10-08T16:00", "until": "17:30", "for_member": [1]},
+        )
+    )
+    effect = ripple(before, after)
+    assert effect.worsens, "the pickup got worse and must be said out loud"
+    assert "performance review" in effect.worsens[0].detail
+    assert not effect.unchanged or all(
+        c.title != effect.worsens[0].title for c in effect.unchanged
+    ), "it cannot be in both buckets"
+
+
+def test_a_worsened_problem_is_not_called_safe(week):
+    """`is_safe` drives the spoken sentence, so it has to mean "nothing got worse", not "no new
+    key appeared"."""
+    before = detect(week)
+    after = detect(
+        apply_hypothetical(
+            week,
+            {"kind": "runs_late", "at": "2026-10-08T16:00", "until": "17:30", "for_member": [1]},
+        )
+    )
+    assert not ripple(before, after).is_safe
+
+
+def test_an_untouched_problem_still_counts_as_unchanged(week):
+    """The other side of it: a hypothetical somewhere else must not relabel every standing problem
+    as worse, or the word stops meaning anything."""
+    before = detect(week)
+    after = detect(
+        apply_hypothetical(week, {"kind": "runs_late", "at": "2026-10-05T09:30", "until": "16:45",
+                                  "for_member": [1]})
+    )
+    effect = ripple(before, after)
+    assert effect.unchanged, "Thursday's problems are untouched by a Monday change"
+    assert not effect.worsens

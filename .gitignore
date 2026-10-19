@@ -9,3 +9,7 @@ __pycache__/
 *.db
 .playwright-mcp/
 .cache/
+
+features.md
+alexa-platform-limits.md
+friction-log.md

@@ -4,11 +4,12 @@ These assertions are the evidence behind differentiator #1: the Thursday pickup 
 the adult currently assigned to it, while no two events overlap at all.
 """
 
+import os
 from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 
-from eval.generate import THURSDAY, at, build_demo_family
+from eval.generate import LOCATIONS, THURSDAY, at, build_demo_family
 from lifepilot.db.models import Assignment, Event, Member, Rule, TravelTime
 from lifepilot.db.session import make_engine, make_session_factory
 
@@ -127,4 +128,48 @@ def test_travel_table_is_symmetric_and_complete():
         }
         for (a, b), minutes in rows.items():
             assert rows[(b, a)] == minutes
-        assert len(rows) == 7 * 7
+        assert len(rows) == len(LOCATIONS) ** 2
+
+
+def test_the_week_admits_a_feasible_parent_swap():
+    """The video needs a swap that visibly succeeds, and that is a property of the seed, not the code.
+
+    Mom's Tuesday cricket collection is the only lift of hers Dad can reach from the office. Lose it
+    and every Dad/Mom pairing is correctly refused, which silently kills the swap demo.
+    """
+    from lifepilot.tools.swap import request_swap
+
+    with fresh_session() as session:
+        build_demo_family(session)
+        result = request_swap(
+            session, "Dad", "Mom", give_day=THURSDAY, take_day=THURSDAY - timedelta(days=2)
+        )
+
+        assert result["feasible"] is True, result.get("say")
+        assert result["awaiting"] == "Mom"
+        assert {c["title"] for c in result["changes"]} == {
+            "football practice pickup", "cricket practice pickup",
+        }
+
+
+def test_seeding_twice_is_refused(tmp_path, monkeypatch):
+    """It used to append a second family with another "Dad". `resolve_viewer` takes the first member
+    of that name, so the new family was unreachable and the demo kept answering from the stale week.
+    """
+    import subprocess
+    import sys
+
+    env = {**os.environ, "DATABASE_URL": f"sqlite+pysqlite:///{tmp_path / 'seed.db'}"}
+    seed = [sys.executable, "-m", "eval.generate", "--seed-db"]
+
+    first = subprocess.run(seed, capture_output=True, text=True, env=env)
+    assert first.returncode == 0, first.stderr
+    assert "seeded family" in first.stdout
+
+    second = subprocess.run(seed, capture_output=True, text=True, env=env)
+    assert second.returncode != 0
+    assert "already holds family" in second.stderr
+
+    reset = subprocess.run(seed + ["--reset"], capture_output=True, text=True, env=env)
+    assert reset.returncode == 0, reset.stderr
+    assert "dropped and recreated" in reset.stdout

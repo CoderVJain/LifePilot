@@ -53,7 +53,9 @@ def rank(
     choices = []
     for position, candidate in enumerate(ordered):
         runner_up = ordered[position + 1] if position + 1 < len(ordered) else None
-        factor = _deciding_factor(candidate, runner_up, loads, balance_load)
+        factor = _deciding_factor(
+            candidate, runner_up, loads, balance_load, alone=len(ordered) == 1
+        )
         choices.append(
             Choice(
                 name=candidate.name,
@@ -83,11 +85,20 @@ def _slack(candidate: Candidate) -> int:
 
 
 def _deciding_factor(
-    winner: Candidate, runner_up: Candidate | None, loads: Mapping[int, int], balance_load: bool
+    winner: Candidate,
+    runner_up: Candidate | None,
+    loads: Mapping[int, int],
+    balance_load: bool,
+    alone: bool = True,
 ) -> str:
-    """The first factor on which the winner actually beat the next best. `tie` when none did."""
+    """The first factor on which the winner actually beat the next best. `tie` when none did.
+
+    `runner_up` is None for the last candidate as well as for a lone one, so the caller says which
+    it is. Read as "only one" either way, whoever came last claimed to be the only adult who could
+    get there while ranked below somebody who also could.
+    """
     if runner_up is None:
-        return "only_one"
+        return "only_one" if alone else "also_could"
     a = _key(winner, loads, balance_load)
     b = _key(runner_up, loads, balance_load)
     for index, factor in enumerate(FACTORS):
@@ -99,6 +110,8 @@ def _deciding_factor(
 def _reason(candidate: Candidate, factor: str, loads: Mapping[int, int]) -> str:
     if factor == "only_one":
         return f"{candidate.name} is the only one who can get there"
+    if factor == "also_could":
+        return f"{candidate.name} can get there too, but ranks behind the others"
     if factor == "tie":
         return f"{candidate.name} can get there, and so could the others"
     template = FACTOR_REASONS[factor]

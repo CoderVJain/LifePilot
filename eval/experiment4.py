@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from eval.experiment1 import RESULTS_DIR, provenance
 from eval.harness import Answered, answer, running_stack
 from eval.transcripts import ALL, by_name
+from simulator.toolsets import TOOLSET_ENV
 
 
 @dataclass
@@ -100,7 +101,7 @@ def print_report(verdicts: Sequence[Verdict], cassette) -> None:
     print(cassette)
 
 
-def write_csv(verdicts: Sequence[Verdict], meta: dict):
+def write_csv(verdicts: Sequence[Verdict], meta: dict, arms: dict | None = None):
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     path = RESULTS_DIR / "experiment4.csv"
     with path.open("w", newline="", encoding="utf-8") as handle:
@@ -117,6 +118,21 @@ def write_csv(verdicts: Sequence[Verdict], meta: dict):
             ("all three", "all_ok"),
         ):
             writer.writerow([name, f"{share(verdicts, attribute):.3f}"])
+        if arms:
+            writer.writerow([])
+            writer.writerow(["toolset", "schemas", "tool", "args", "answers", "all_three"])
+            for setting in ("full", "coarse"):
+                rows = arms.get(setting)
+                if not rows:
+                    continue
+                writer.writerow([
+                    setting,
+                    len(_schemas_for(setting)),
+                    f"{share(rows, 'tool_ok'):.3f}",
+                    f"{share(rows, 'args_ok'):.3f}",
+                    f"{share(rows, 'answer_ok'):.3f}",
+                    f"{share(rows, 'all_ok'):.3f}",
+                ])
         writer.writerow([])
         writer.writerow(["speaker", "said", "wanted_tool", "routed", "tool_ok", "args_ok",
                          "answer_ok", "complaints", "spoken"])
@@ -126,10 +142,17 @@ def write_csv(verdicts: Sequence[Verdict], meta: dict):
     return path
 
 
-def run(with_llm: bool = False, group: str = "all", **_ignored) -> list[Verdict]:
-    """Replays recorded answers by default. `with_llm` records anything new, once."""
-    exchanges = by_name(group)
+def _one_arm(exchanges, with_llm: bool, setting: str) -> list[Verdict]:
+    """Every exchange through the whole stack, with whichever toolset is currently set.
+
+    The schema count is printed from inside the stack on purpose. `simulator.conversation` freezes
+    the loaded window at import, `running_stack` pins the clock, and counting the schemas first
+    imported the agent before that pin: the window became the real one, the routing prompt carries
+    it, the prompt is part of the cassette key, and every single recording missed. Both arms then
+    scored 4.4% on a suite that had just scored 100%.
+    """
     with running_stack("experiment4", live=with_llm) as (client, cassette):
+        print(f"\n--- {setting} toolset ({len(_schemas_for(setting))} schemas offered) ---")
         results = []
         state: dict = {}
         for exchange in exchanges:
@@ -138,13 +161,65 @@ def run(with_llm: bool = False, group: str = "all", **_ignored) -> list[Verdict]
             results.append(answer(client, exchange, state))
         verdicts = [judge(result) for result in results]
         print_report(verdicts, cassette)
+    return verdicts
+
+
+def run(with_llm: bool = False, group: str = "all", **_ignored) -> list[Verdict]:
+    """Both toolsets, scored the same way. Replays by default; `with_llm` records anything new.
+
+    The granularity comparison is the experiment's second half, so it runs here rather than being
+    assembled by hand: `CLAUDE.md` requires every published number to come out of `make eval`.
+    Each arm is a separate run of the same exchanges, because the schema block the model sees is
+    the only thing that differs.
+    """
+    exchanges = by_name(group)
+    arms = {}
+    for setting in ("full", "coarse"):
+        previous = os.environ.get(TOOLSET_ENV)
+        os.environ[TOOLSET_ENV] = setting
+        try:
+            arms[setting] = _one_arm(exchanges, with_llm, setting)
+        finally:
+            if previous is None:
+                os.environ.pop(TOOLSET_ENV, None)
+            else:
+                os.environ[TOOLSET_ENV] = previous
+
+    _print_comparison(arms)
 
     meta = provenance(None)
     meta["exchanges"] = len(exchanges)
     meta["model_replayed_from"] = "cassette" if not with_llm else "live, and recorded"
-    path = write_csv(verdicts, meta)
+    for setting in arms:
+        meta[f"{setting}_schemas"] = len(_schemas_for(setting))
+    path = write_csv(arms["full"], meta, arms=arms)
     print(f"wrote {path}")
-    return verdicts
+    return arms["full"]
+
+
+def _schemas_for(setting: str) -> list[dict]:
+    from simulator.agent import TOOL_SCHEMAS
+    from simulator.toolsets import COARSE_SCHEMAS
+
+    return COARSE_SCHEMAS if setting == "coarse" else TOOL_SCHEMAS
+
+
+def _print_comparison(arms: dict[str, list[Verdict]]) -> None:
+    """The headline of experiment 4's second half: does granularity help a small model?"""
+    print("\n=== tool granularity ===\n")
+    print(f"{'toolset':<12}{'schemas':>9}{'tool':>9}{'args':>9}{'answers':>9}{'all three':>11}")
+    print("-" * 59)
+    for setting in ("full", "coarse"):
+        verdicts = arms.get(setting)
+        if not verdicts:
+            continue
+        print(
+            f"{setting:<12}{len(_schemas_for(setting)):>9}"
+            f"{share(verdicts, 'tool_ok'):>8.1%}"
+            f"{share(verdicts, 'args_ok'):>9.1%}"
+            f"{share(verdicts, 'answer_ok'):>9.1%}"
+            f"{share(verdicts, 'all_ok'):>11.1%}"
+        )
 
 
 if __name__ == "__main__":

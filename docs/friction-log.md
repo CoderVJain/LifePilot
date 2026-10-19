@@ -930,3 +930,216 @@ re-applied deliberately rather than through another shell script.
    nothing was committed. 68 mutations had accumulated in an untracked file.
 3. **A test that passes is not evidence the code ran.** The regex matched nothing and no test
    noticed, because no test asserted on its output. The named-time matcher now has one.
+
+## 31. Two things Alexa+ add-ons cannot do, found before building on them (Oct 2, 2026)
+
+Asked how a real Echo would know who is talking, and how LifePilot would speak at a set time. Both
+answers changed the design, so both were checked against Amazon's documentation first rather than
+assumed. Written up in full in `docs/alexa-platform-limits.md`.
+
+**Per-speaker identity is not available to an add-on.** A classic Alexa skill gets
+`context.System.person.personId` when a Voice Profile matches and the customer has enabled
+"Personalize skills". The Alexa+ add-on documentation describes account linking as connecting "a
+customer's Amazon account to their account in your service" and says every request carries an OAuth
+access token; it never mentions `personId`, voice profiles, or two household members sharing a device.
+One account, not one person.
+
+That matters because differentiator #9 is role-aware privacy. LifePilot now asks at the start of every
+session, and the speaker switcher is labelled as the demo control it always was. Roles never moved into
+the prompt: the role is read from the database on every call.
+
+**There is no documented server-initiated push.** `ProactiveEvents` is a classic-skill API and
+delivers an Alexa *Notification* -- a chime the customer then asks about -- not speech. The only push
+in the add-on docs is during account linking on a headless device. So speaking first is a property of
+our simulator and every such message carries a badge, per hard requirement 10.
+
+**Product feedback for Amazon.** The add-on account-linking page is the natural place a builder looks
+for "what do I know about the user", and it answers only "an OAuth token". A short section saying
+plainly whether `personId` or voice-profile identity reaches an MCP add-on -- even just "not today" --
+would have saved a day of searching, and the absence currently reads as an omission rather than a
+decision. The same page is the natural place to say whether an add-on can ever initiate.
+
+**What it cost to find out:** six searches and one doc fetch, because the answer is the absence of a
+statement rather than a statement. The cheapest signal was negative: the add-on docs never use the
+word `personId` anywhere.
+
+## 32. "Schedule a meeting at 4" when 4 o'clock is taken (Oct 2, 2026)
+
+Two faults a tester found in one sentence, and a third I introduced fixing them.
+
+**It would not create anything.** "Schedule my meeting at 4:00 p.m. today" was answered "you have
+nothing on today at 4 PM" -- true, unasked for, and the meeting still was not in the diary. Cause:
+"schedule" is the noun in "what is my schedule" as well as the verb in "schedule my meeting", and the
+model read the instruction as the question. The decision is now made from the words (a booking verb at
+the head of the sentence, after polite openers are stripped), and the model is then asked once with
+**only `add_event` in scope** to pull out the title and time. One extra call, only on real bookings,
+inside the turn's existing 3-call ceiling.
+
+**It stacked instead of swapping.** Where the slot was taken, the old behaviour warned -- "Dad is in
+two places at once" -- and a yes added the second event anyway, leaving the diary in a state nobody
+asked for. Booking four o'clock when four o'clock is taken means one of them. A swap is now proposed
+as two changes, a `remove` and an `add`, applied together or not at all, and `approve.py` learned the
+`remove` kind. A no leaves what was there.
+
+**The over-triggers the eval caught before a person did**, all three on the first run after the
+booking detector landed:
+
+| sentence | what it did | guard added |
+|---|---|---|
+| "I want to schedule a meeting at 4, **do I have any work at that time?**" | booked it | a sentence that asks whether a time is free is a check, not an instruction |
+| "...do I have anything at that time" | booked it | same |
+| "**book me a flight to Goa**" | created "flight to Goa, 12 AM to 11:59 PM" | the model had declined it as out of scope; that judgement now stands, and only `get_schedule`/`what_if` are overridden |
+
+The flight was the dangerous one: a midnight-to-midnight entry in a family's week, from a sentence the
+model had already handled correctly.
+
+**Two judgement calls, both written into the code rather than left implicit.**
+
+*A long containing block is not a swap.* An hour inside a nine-to-half-four working day overlaps it,
+but offering to delete somebody's whole day because they asked for an hour in the middle of it is the
+most destructive reading of a reasonable request. Only an existing event no more than twice the length
+of the new one is offered for replacement; anything longer is reported as a clash, as before.
+
+*A fixed commitment is offered, but named as one.* The first swap the tests found was Dad's
+performance review, which is `movable=False`. CLAUDE.md says immovable events never move, and that
+rule is about the solver rearranging things on its own. A parent is the authority on their own diary,
+so the offer stands -- but the sentence says "which is a fixed commitment", because nobody should drop
+a performance review thinking it was an ordinary hour.
+
+**Also removed:** the "who am I speaking to?" question that opened every session. It was built two
+days ago at a tester's request and removed at the same tester's request: a question before every first
+request is a tax on every session, and the identity it establishes is one the platform will not give
+us anyway. The limitation is still documented; the session assumes the linked account's parent.
+
+## 33. Linking Gmail: two faults, and a diagnosis I got wrong twice (Oct 4, 2026)
+
+The sign-in is the only non-voice step in LifePilot, so it is one route and one page. It still took
+three attempts, and the useful part is that the error messages pointed away from the causes both
+times.
+
+**`invalid_grant: Missing code verifier`.** `google-auth-oauthlib` turns PKCE on by default
+(`autogenerate_code_verifier=True`): `authorization_url()` invents a verifier, sends Google only its
+SHA-256, and keeps the original on the `Flow` object. A web app has two requests, so the callback
+built a second `Flow` -- with a different verifier -- and Google rejected the exchange. The message
+names the symptom; nothing in it says "the verifier you must present was generated on your other
+request and thrown away". The verifier is now carried beside the state for the length of the round
+trip. PKCE stays on; turning it off would also have made the error go away, which is the trap.
+
+Before reading the traceback I named two suspects out loud -- oauthlib rejecting a widened scope, and
+the CA bundle not reaching the token exchange -- and both were wrong. Cheap to be wrong there, because
+the traceback was one request away. It would not have been cheap to start changing code on either
+theory, and the scope one was plausible enough to have cost an afternoon.
+
+**A blanket `.env` override sent the demo to Neon.** `llm.py` loads `.env` with `override=True`, so a
+project file beats whatever a shell is carrying. That exists for one reason: a stale `AWS_CA_BUNDLE`
+left in a terminal silently defeats the file, and the only symptom is a certificate error eighty
+frames deep. But `make serve` points the demo at local SQLite *precisely by setting `DATABASE_URL` in
+the shell*, and the override cancelled it -- 1.9 seconds a tool call from India instead of 35 ms, with
+nothing said about it.
+
+It had been latent all along and Phase 11 armed it: before the school-email tools, the MCP server
+never imported `llm.py`; now it does, through `school_email` -> `extract` -> `llm`. The override is
+now scoped to the three variables that module owns (`AWS_CA_BUNDLE`, `AWS_REGION`,
+`BEDROCK_MODEL_ID`), and a test pins each half. **A side effect at import time is a change to another
+module's configuration, and the import graph deciding whether it fires is not a dependency anyone
+reads.**
+
+**What went right.** The whole feature was built against a fake Gmail client and was fully tested
+before a single Google credential existed, so Step 0 blocked nothing and the only failures left to
+find were in the hundred lines of OAuth itself. The token exchange was also the one place the Avast
+TLS interception did *not* need handling, because `trust_bundle()` was already applied to the
+session -- the first time that problem was solved before meeting it.
+
+**Product feedback, Google OAuth:** `invalid_grant` is the same error code for a reused code, an
+expired code, a clock skew, a wrong redirect URI and a missing verifier. The `error_description`
+distinguishes them, and the library surfaces it, but the exception type does not -- so the first
+instinct is to doubt the credentials rather than read the sentence.
+
+## 34. A fourth transport with a fourth trust store (Oct 4, 2026)
+
+"I sent the school an email and LifePilot cannot read it." Two separate findings, and only one was a
+bug.
+
+**`googleapiclient` never sees our CA bundle.** The Gmail client failed with
+`CERTIFICATE_VERIFY_FAILED` -- the Avast interception of entry 1, in a transport we had not covered.
+This project now talks to the internet four ways, and each resolves trust differently:
+
+| transport | used for | how it takes a bundle |
+|---|---|---|
+| botocore | Bedrock | `verify=` argument (`AWS_CA_BUNDLE` honoured, inconsistently) |
+| requests | the OAuth token exchange | `session.verify`, or `REQUESTS_CA_BUNDLE` |
+| httplib2 | **the Gmail API** | `Http(ca_certs=...)` **only** -- no environment variable at all |
+| ssl | our own probes | the Windows store, which trusts Avast already |
+
+`httplib2` is the awkward one: `CA_CERTS = certs.where()` at import, overridable only by the
+constructor argument. So no amount of environment setting reaches it, and the failure looks identical
+to the one `AWS_CA_BUNDLE` is supposed to have already fixed. Both Gmail transports now take
+`trust_bundle()` explicitly. Entry 1 noted that Avast intercepts some processes and not others; that
+is what made this intermittent rather than obvious -- the uvicorn process succeeded while a probe
+from a terminal failed, on the same code and the same machine.
+
+**The email was read correctly all along.** It was a school closure notice. Extraction returned
+`action_needed: false`, which is right: an announcement asks nobody to do anything. But the answer
+was "Nothing new from school", so the tester reasonably concluded it had not been read. Those are two
+different facts and now get two different sentences -- "Nothing new from school" when the window was
+empty, "I read one email from school, and there is nothing you need to do" when it was not.
+
+**Worth separating the two failures.** The transport bug was real and would have broken the demo at
+random. The second was the product being right and sounding wrong, which is the harder kind to find:
+no error, no exception, nothing in a log, and a correct answer that costs you the user's trust.
+
+**Process note, for the second time in two entries:** before reading the traceback I had named spam
+filtering and the `from:(...)` query as the likely causes. Both wrong. The probe that settled it
+listed the mailbox four ways -- our query, our query including spam, sender only, and the whole
+mailbox -- and the one line that mattered was the exception, not any of the four results.
+
+---
+
+## 35. The documented place to put a cache point is the one place Nova rejects (Oct 5, 2026)
+
+Prompt caching was the last cost lever left: the routing call sends the 18 tool schemas on every
+turn, identical every time. The AWS prompt-caching guide shows a cache point appended as the last
+element of `toolConfig.tools`, and says the Converse `cachePoint` syntax is "identical across
+supported model families, including Anthropic Claude and Amazon Nova". So that is what we wrote.
+
+`us.amazon.nova-micro-v1:0` refuses it outright:
+
+```
+ValidationException: Malformed input request:
+#/toolConfig/tools/12: extraneous key [cachePoint] is not permitted
+```
+
+Note the index: we appended one cache point after 18 tools, and the validator complains about
+position 12. The message does not describe our request, which cost time before we stopped reading it
+as a clue.
+
+**What works, measured rather than assumed.** A cache point at the end of `system` is accepted, and
+because Bedrock reads the sections in the order tools -> system -> messages, that single point caches
+the whole prefix *including* the tool block. Four calls, same utterance:
+
+| | input tokens | cache read | cache write | cost |
+|---|---|---|---|---|
+| no cache point | 2,023 | - | - | $0.0000763 |
+| system cache point, cold | 69 | 0 | 1,954 | - |
+| system cache point, warm | 69 | 1,954 | 0 | $0.0000147 |
+
+1,954 + 69 = 2,023, which is the proof that the tool block is inside the cached prefix. **81% off a
+routing call**, and the tools point the guide recommends is not merely unnecessary for Nova, it makes
+the request invalid.
+
+**A second bug this uncovered.** `Turn.record` was reading `cacheReadInputTokenCount`. The Converse
+API reports `cacheReadInputTokens` and `cacheWriteInputTokens`; the `...TokenCount` spelling belongs
+to InvokeModel. The only thing that ever supplied the wrong name was our own test, so the test passed
+and the accounting would have reported zero cached tokens forever -- a cost control that silently
+measured nothing. Also worth knowing for the accounting: `inputTokens` **excludes** cached tokens,
+so the total sent is `inputTokens + cacheReadInputTokens + cacheWriteInputTokens`, and a Nova cache
+write costs the ordinary input rate while a read costs a tenth of it.
+
+**Product feedback for Bedrock.** Two things would have saved the whole detour: say per model family
+which sections accept a cache point rather than claiming the syntax is identical, and make the
+validation error name the key the caller actually sent instead of an index that matches nothing in
+the request.
+
+**Also worth recording:** `CLAUDE.md` put the tool-schema block at ~3,500 tokens. Measured, it is
+1,879 (2,023 for the whole call, 144 of it the system prompt and user text). The caching win is real
+but the uncached baseline was overstated by about half.

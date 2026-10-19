@@ -4,6 +4,13 @@
   "body": "Dear parents, Aarav's class performs on Friday 9 October. Please send him in a farmer costume that morning. Plain brown or green clothes are fine; no need to buy anything special.",
   "label": "task",
   "expected": [
-    {"title": "farmer costume", "child": "Aarav", "due": "2026-10-09", "category": "supplies"}
+    {
+      "kind": "task",
+      "title": "farmer costume",
+      "child": "Aarav",
+      "due": "2026-10-09",
+      "category": "supplies",
+      "prep_days": 1
+    }
   ]
 }

@@ -16,7 +16,7 @@ from datetime import datetime
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from lifepilot.db.models import Assignment, Event, Member, Proposal
+from lifepilot.db.models import Assignment, Event, Member, Proposal, Task
 from lifepilot.tools.context import resolve_viewer
 
 
@@ -145,6 +145,12 @@ def _apply(session: Session, proposal: Proposal) -> list[dict]:
             applied.append(_apply_assign(session, change))
         elif kind == "move":
             applied.append(_apply_move(session, change))
+        elif kind == "add":
+            applied.append(_apply_add(session, proposal.family_id, change))
+        elif kind == "remove":
+            applied.append(_apply_remove(session, proposal.family_id, change))
+        elif kind == "task":
+            applied.append(_apply_task(session, proposal.family_id, change))
         else:
             raise CannotApply(f"I do not know how to make a {kind!r} change")
     session.flush()
@@ -168,6 +174,90 @@ def _apply_assign(session: Session, change: dict) -> dict:
     else:
         assignment.member_id = person_id
     return {"kind": "assign", "title": event.title, "now": person.name}
+
+
+def _apply_remove(session: Session, family_id: int, change: dict) -> dict:
+    """Take an event out, with its lift assignments. Only ever paired with an add, as a swap.
+
+    The family comes from the proposal, so an approved proposal cannot delete out of another family's
+    week. An event that has already gone is not an error: the end state is the one that was asked for.
+    """
+    event = session.get(Event, change.get("event_id"))
+    if event is None:
+        return {"kind": "remove", "title": change.get("title", "it"), "now": "already gone"}
+    if event.family_id != family_id:
+        raise CannotApply("that event belongs to another family")
+
+    for assignment in session.scalars(
+        sa.select(Assignment).where(Assignment.event_id == event.id)
+    ).all():
+        session.delete(assignment)
+    title = event.title
+    session.delete(event)
+    return {"kind": "remove", "title": title, "now": "gone"}
+
+
+def _apply_add(session: Session, family_id: int, change: dict) -> dict:
+    """Put a new event in the calendar. The only path that creates one, and only after a parent's yes.
+
+    The family is taken from the proposal, never from the change, so an approved proposal cannot write
+    into a different family's week.
+    """
+    title = (change.get("title") or "").strip()
+    if not title:
+        raise CannotApply("that event has no name")
+
+    start_iso, end_iso = change.get("start_iso"), change.get("end_iso")
+    if not start_iso or not end_iso:
+        raise CannotApply(f"I do not know when {title} is")
+    try:
+        start, end = datetime.fromisoformat(start_iso), datetime.fromisoformat(end_iso)
+    except ValueError as bad:
+        raise CannotApply(f"{title} does not have a time I can read") from bad
+    if end <= start:
+        raise CannotApply(f"{title} would end before it starts")
+
+    event = Event(
+        family_id=family_id,
+        member_ids=list(change.get("member_ids") or []),
+        title=title,
+        category=change.get("category") or "other",
+        start=start,
+        end=end,
+        location_id=change.get("location_id"),
+        needs_transport=bool(change.get("needs_transport")),
+        movable=True,
+    )
+    session.add(event)
+    return {"kind": "add", "title": title, "now": change.get("when") or start_iso}
+
+
+def _apply_task(session: Session, family_id: int, change: dict) -> dict:
+    """Write a task, almost always one extracted from a school email.
+
+    The due date is a date, so it is stored at the start of that day: "costume by Friday" is not a
+    time of day, and inventing one would put a deadline in the diary that nobody said.
+    """
+    title = (change.get("title") or "").strip()
+    if not title:
+        raise CannotApply("that task has no name")
+    try:
+        due = datetime.fromisoformat(change["due_iso"])
+    except (KeyError, ValueError) as bad:
+        raise CannotApply(f"I do not know when {title} is due") from bad
+
+    session.add(
+        Task(
+            family_id=family_id,
+            owner_id=change.get("owner_id"),
+            title=title,
+            category=change.get("category") or "other",
+            due=due,
+            prep_days=int(change.get("prep_days") or 0),
+            source=change.get("source") or "voice",
+        )
+    )
+    return {"kind": "task", "title": title, "now": change.get("due_iso")}
 
 
 def _apply_move(session: Session, change: dict) -> dict:
@@ -194,8 +284,16 @@ def _apply_move(session: Session, change: dict) -> dict:
 def _confirmation(applied: list[dict]) -> str:
     if not applied:
         return "There was nothing to change."
-    parts = [
-        f"{c['now']} has {c['title']}" if c["kind"] == "assign" else f"{c['title']} is now {c['now']}"
-        for c in applied
-    ]
-    return "Done. " + ", and ".join(parts) + "."
+    return "Done. " + ", and ".join(_said(c) for c in applied) + "."
+
+
+def _said(change: dict) -> str:
+    if change["kind"] == "assign":
+        return f"{change['now']} has {change['title']}"
+    if change["kind"] == "add":
+        return f"{change['title']} is in the calendar"
+    if change["kind"] == "task":
+        return f"{change['title']} is on the list"
+    if change["kind"] == "remove":
+        return f"{change['title']} is off"
+    return f"{change['title']} is now {change['now']}"
