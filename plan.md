@@ -9,10 +9,18 @@ decisions and numbers worth not re-deriving.
 
 ## Status (Oct 20 2026)
 
-Build is complete bar the items below. **698 tests, ruff clean.** `make eval` runs experiments 1, 2,
+Build is complete bar the items below. **705 tests, ruff clean.** `make eval` runs experiments 1, 2,
 3, 4, 5 and 6 from one command, writing six CSVs and five PNGs with **zero model calls**. Exp 7 is
 cut. Every differentiator #1–#9 is built, and **#1–#7 and #9 have now been exercised by voice in a
 browser** — #7 as of Oct 20, against a real Gmail inbox.
+
+**Oct 20 (seventh pass):** **requirement 4 is finally tested** — a tree built from exactly what git
+tracks, `uv sync`, the README and nothing else. It found a bug no amount of local testing could:
+the Agent Skill's advertised digest did not match the bytes served on **any Windows clone**, so a
+host rejected the skill and it never loaded. Then `make eval` reproduced all six experiments from
+that clean tree with **zero model calls**, and three more defects were fixed and driven live. §4's
+first and third items and §7's second are closed; written up under §10. **705 tests, ruff clean.**
+Whole day's live spend: **$0.00028**.
 
 **Oct 20 (sixth pass):** **the Gmail path ran end to end for the first time** — real inbox, real
 OAuth token, Bedrock extraction, proposal, Dad's spoken yes, task written. §5 is closed. Driving it
@@ -356,11 +364,19 @@ tests. 690 tests did not catch a single one. A person typing a sentence caught s
 
 ### 4. Submission
 
-- [ ] **Fresh clone → `.env` from `.env.example` → follow only the README.** Requirement 4, and the
-      thing most likely to be quietly broken. Nothing has ever tested it.
+- [x] **Fresh clone → `.env` from `.env.example` → follow only the README.** Done Oct 20, and it
+      was quietly broken: see §10. The tree was built from `git checkout-index` -- exactly the 145
+      files git tracks, no `.venv`, no `.env`, no `demo.db`, no `eval/results/` -- then `uv sync`,
+      `cp .env.example .env`, seed, tests, both processes, a driven turn. Four defects, two of them
+      invisible from the working tree. Worth repeating from the real GitHub URL before submitting;
+      the one thing this method cannot reproduce is `git_sha`, which reads `unknown` without a
+      `.git` directory and resolves normally in a real clone.
 - [ ] README: concise, fresh-clone setup, every number traced to a CSV, plus the honest notes
       `CLAUDE.md` requires and the three in **Honesty notes** below.
-- [ ] `make eval` from clean; confirm every published number comes out of it.
+- [x] `make eval` from clean -- done Oct 20 in the fresh-clone tree. One command, six CSVs and
+      five PNGs, **0 recorded / 0 model calls**: exp 1 overlap F1 0.400 against LifePilot 1.000,
+      exp 4 100% / 100% / 100% full and 92.7 / 94.5 / 90.9 coarse, exp 5 100% caught against 60%,
+      exp 6 spread 0.43 against 5.00. Every README number traces to one of those CSVs.
 - [ ] Product feedback for every Amazon/AWS tool used, plus the friction log.
 - [x] **`docs/features.md` written** (Oct 19) -- every feature in plain language, with a real
       spoken example for each, taken from browser and eval output rather than invented. Carries two
@@ -409,10 +425,11 @@ tests. 690 tests did not catch a single one. A person typing a sentence caught s
       2.1.1 does not have, so this may be a backport note rather than a feature.
 - [ ] Write the coarse-set wording caveat into the README rather than tuning the descriptions.
 
-### 7. Found by Varun, Oct 19 — deliberately NOT built
+### 7. Found by Varun, Oct 19 — one built Oct 20, one still deliberately NOT built
 
-Both are **missing capability**, not bugs, and both were found the day before the internal target.
-Varun's call, not an assistant's. Recorded here so the next session does not rediscover them.
+Both were **missing capability**, not bugs, and both were found the day before the internal target.
+Varun's call, not an assistant's. The second was built on Oct 20 and is kept here with its original
+diagnosis, because that diagnosis turned out to be wrong in a way worth not repeating (§10).
 
 - [ ] **"On which day can I schedule a lunch with Mom at 1 PM?" cannot be answered.** There is no
       tool that **searches across days for a free slot**. The whole tool set either shows what is
@@ -422,12 +439,9 @@ Varun's call, not an assistant's. Recorded here so the next session does not red
       stretches across a date range, and `scan_risks` already uses it to pick a slot for a task at
       risk. What is missing is overlapping **two** people's gaps and a `find_time` tool to route
       to. Estimated: the tool and the wiring are small, the two-person overlap is a few hours.
-- [ ] **`add_event` does not read "with Mom" from the sentence**, so "book lunch with Mom" lands on
-      **Dad's calendar only**. `_members` defaults to the asker alone when the model fills no
-      `members` list -- and the model dropping exactly that name is a failure already observed and
-      already fixed **once**, for `cancel_event`'s replacement leg (`_people_after_with`). The same
-      fix applied to `add_event` is roughly fifteen minutes. **Fifth instance of the lesson that a
-      name in the sentence must be read from the sentence.**
+- [x] **`add_event` does not read "with Mom" from the sentence** -- built Oct 20, and the fifteen
+      minutes were right about the size and wrong about the shape. See §10: the diagnosis in this
+      entry was itself wrong, which is why driving it mattered.
 
 **The bigger point Varun made, which is worth keeping:** when a question falls outside the tool
 set, LifePilot gives a **near-miss answer instead of saying it cannot do that one yet**. Answering
@@ -449,7 +463,7 @@ and I did not apply it. A reseed is not a neutral setup step; it is destroying w
 - [ ] Nothing to build. The rule is already written; it needs to be **followed for `demo.db` too**,
       and a reseed asked for rather than assumed whenever Varun has the browser open.
 
-### 9. Found by Varun driving Gmail, Oct 20 — four fixed, one open
+### 9. Found by Varun driving Gmail, Oct 20 — all five fixed
 
 Every one of these had **correct data in the database** and lost it on the way to the person. The
 suite asserts tool results, so none of the four could have been caught by it. The question that
@@ -482,19 +496,84 @@ exposed them — *"when is the farmer costume due"* — now answers in one sente
       is a deadline**, because a deadline belongs to whoever owns it, not whoever asked. `work`
       and the rest keep `about` — *"when does Mom finish work on Friday"* still answers about Mom.
 
-- [ ] **Open: the simulator never reconnects to the MCP server.** `lifespan` opens one `MCPClient`
-      at startup and holds it for the life of the process. Restart the MCP server and every
-      subsequent turn fails with `the client session is not running`, which the simulator reports
-      as **"Something went wrong reaching the language model"** — pointing at Bedrock, which is
-      fine. It cost half an hour of looking in the wrong place. Two options, neither built: say
-      which hop failed (cheap, honest, enough), or reconnect on a dead session (better, more work).
-      **Operationally for now: restart the simulator after the MCP server, always in that order.**
+- [x] **The simulator blamed the wrong hop.** The cheap option is built and driven live Oct 20:
+      `_why_degraded` has a third branch, so a dead session now says **"I cannot reach the planning
+      server"** rather than "Something went wrong reaching the language model". Proved in the real
+      failure mode -- the MCP server killed under a running session, not a mocked exception. It had
+      by then cost half an hour once and a confused cycle twice more, the second time to me while
+      verifying something else.
+      **Reconnection is still not built, on purpose:** `lifespan` still opens one `MCPClient` and
+      holds it for the life of the process, so restarting the MCP server alone still leaves that
+      session dead -- it now says so honestly. Touching the hot path three days from the deadline
+      buys less than it risks. **Operationally: start the MCP server first, then the simulator**,
+      and restart both after a server-side change. That order is now in the README, because it cost
+      a cycle today: a server-side sentence was fixed, only the simulator was restarted, and the
+      old sentence came back from the stale server process.
 
 **Not a defect, worth knowing:** "Nothing new from school" was correct when the allowlist named the
 **linked inbox** rather than the **sender playing the school** — the query `from:(the demo account)`
 genuinely matched nothing. The answer was honest and still sent us looking at the wrong thing. An
 allowlist equal to the linked account is a detectable mistake and could be worth one sentence back
 ("that is the account you linked; who sends the school's email?").
+
+### 10. The fresh-clone run, Oct 20 — four defects, two invisible from here
+
+Requirement 4 had never been tested, and it was the only remaining item that could fail the entry
+outright rather than cost it points. The tree was built with `git checkout-index` so it held exactly
+the 145 files git tracks, then driven by the README alone.
+
+**Two of the four could not have been found in the working tree.** That is a different category from
+Lesson 0: not a tool that passes its own tests, but a repository whose contents differ from the
+developer's disk.
+
+- [x] **`docs/features.md` was never in the repo.** `.gitignore` carried a bare `features.md`,
+      which matches at any depth, so the file written on Oct 19 was ignored. The other two docs
+      survived only because they were tracked before that rule landed -- git ignores do not apply
+      to already-tracked files, which is exactly why the mistake was invisible. The friction log was
+      safe, which matters: it is requirement 7.
+- [x] **The Agent Skill advertised a digest for bytes it does not serve.** `skills.py` digested
+      `path.read_bytes()` while serving `path.read_text()`, whose universal-newline translation
+      turns CRLF into LF. Our tree is LF, so the two agreed by luck. `core.autocrlf` is **Git's
+      default on Windows**, so every Windows judge got a catalogue claiming 3413 bytes
+      (`e6cb528d…`) for the 3344 served (`37f89e46…`), and SEP-2640 has the host reject the
+      mismatch: **the skill silently never loads.** That is the Open Source mini challenge's own
+      artefact failing on the most likely judging machine. `_served_bytes()` digests what goes on
+      the wire; the regression test writes its own CRLF file, so it fails on an LF checkout too
+      rather than waiting for another Windows clone.
+- [x] **`make test` failed on a fresh clone.** `tests/test_app.py` used `TestClient(app)` as a
+      context manager, which runs `lifespan` and opens a real `MCPClient`, so both tests died with
+      `ConnectError` where nothing was running -- under a docstring reading "Offline and free". The
+      routes under test are mounted at import time and never needed it. `test_session.py` had
+      already avoided the real lifespan for this reason.
+- [x] **Stale README numbers.** 369 tests (it was 698, now 705) and 35 utterances (55). Both are
+      numbers a judge can check in one command, which is the point of promising them.
+
+**Then `make eval` from that clean tree**: one command, six CSVs, five PNGs, **0 recorded, 0 model
+calls**, every experiment reproducing. The one thing the method cannot reproduce is `git_sha`, which
+reads `unknown` with no `.git` directory.
+
+#### Three more fixed while verifying, all driven live
+
+- [x] **`add_event` now reads "with Mom" — and §7's diagnosis of it was wrong.** §7 said `_members`
+      defaults to the asker "when the model fills no `members` list". Driven in a browser, the model
+      **did** fill it: `["Dad"]`. So a fallback for the empty case never fired, and the booking came
+      back titled *"Lunch with Mom"* with Mom not on it. It is a **union**, not a default: anyone
+      named after "with" is added to whoever the model named. **This is not cosmetic** -- with Mom
+      actually on the event the solver sees that *she* is double-booked, which it structurally could
+      not before. **Seventh instance of Lesson 0, and the first one where my own new test had the
+      wrong shape and passed anyway.** 705 tests did not notice; one typed sentence did.
+- [x] **"It breaks 2 things:" named one of them.** `add_event.py` announced the count and then spoke
+      `breaks[0]` alone, while the card beside it listed both -- two answers to one question, and a
+      parent approving a problem nobody told them about. Pre-existing, and only reachable once a
+      booking could put two people in the clash, so the fix above is what surfaced it. **Third
+      instance of the Oct 20 pattern: the data was right and the presentation dropped it.**
+- [x] **The failed hop is named** -- see §9.
+
+**What this run says about the suite.** 698 tests passed on a machine where the Agent Skill was
+broken for every Windows judge, `make test` failed from a clean clone, and a promised document was
+not in the repository. None of those are logic errors, and no unit test was ever going to see them:
+they live in the gap between the working tree and what is published. Worth repeating the whole
+exercise once from the real GitHub URL before submitting.
 
 **Cut:** exp 7 (user study — not code, and the first item in the drop order; a study thin enough to
 run in the time would be the one invented number in a set where everything traces to a CSV). Stretch
@@ -772,7 +851,19 @@ Written down because each has cost real time more than once.
 13. **Say which hop failed.** "Something went wrong reaching the language model" was shown for a
    dead **MCP session**, and sent half an hour into Bedrock, credentials and TLS -- while a one-call
    `converse` proved the model fine in seconds. A fallback message that names the wrong subsystem is
-   worse than a generic one.
+   worse than a generic one. Built Oct 20, after it cost a cycle twice more.
+14. **Test what is published, not what is on disk.** A green suite on this machine says nothing
+   about the repository a judge downloads. Three Oct 20 defects lived purely in that gap: a bare
+   `.gitignore` pattern kept a promised document out of the repo, `core.autocrlf` broke the Agent
+   Skill's digests on every Windows clone, and `make test` failed from a clean tree while passing
+   here. None is a logic error and no unit test could see any of them. `git checkout-index -a
+   --prefix=` builds exactly what git tracks, which is the only tree worth testing before
+   submitting -- and a CRLF-sensitive check should **write its own CRLF** rather than depend on how
+   the checkout happened to land.
+15. **My own new test can have the wrong shape and pass.** The `add_event` "with Mom" fix was
+   written, tested green, and did nothing: the test assumed the model leaves `members` empty, and in
+   a browser it fills it `["Dad"]`. Lesson 0 applies to the fix *and* to the test written beside it.
+   One typed sentence beat 705 tests.
 
 ---
 
@@ -1062,11 +1153,17 @@ never sent; `assert_patchable()` fails loudly if an upgrade moves the name) · M
 
 ## Before submitting
 
-- [ ] Fresh clone → `.env` from `.env.example` → `make dev`, following the README only (req 4).
-- [ ] Negotiated protocol version 2025-11-25+ **on the wire**; SDK called at runtime.
+- [x] Fresh clone → `.env` from `.env.example` → `make dev`, following the README only (req 4).
+      Done Oct 20 from a `git checkout-index` tree; four defects, see §10. **Repeat once from the
+      real GitHub URL**, which also exercises `git_sha` and the clone itself.
+- [x] Negotiated protocol version 2025-11-25+ **on the wire**; SDK called at runtime. Asserted by
+      `tests/test_mcp_wire.py`, which passes in the fresh clone.
 - [ ] Demo script end to end in one sitting, after the browser-run fixes land.
-- [ ] `make eval` from clean; every README number traced to a CSV. Nothing typed by hand.
-- [ ] All Gmail security tests passing, and the **prompt-injection email run once against the real
-      inbox** — it is the README's security claim and has only ever run against the fake client.
+- [x] `make eval` from clean; every README number traced to a CSV. Nothing typed by hand. Done
+      Oct 20 in the fresh clone: six CSVs, five PNGs, 0 model calls.
+- [ ] All Gmail security tests passing (**68 pass**, including injection-executes-nothing), and the
+      **prompt-injection email run once against the real inbox** — still the one gap: the model's
+      behaviour was probed live on Sep 30 and the Gmail hop ran on Oct 20, but never in the same
+      run. Needs the injection and closure emails **sent into the demo inbox** first.
 - [ ] Every registered tool either routable or noted as deliberately not.
 - [ ] Labels visible; MIT in the GitHub About section; no Amazon marks in the UI or video.
