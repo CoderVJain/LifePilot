@@ -10,6 +10,3 @@ __pycache__/
 .playwright-mcp/
 .cache/
 
-features.md
-alexa-platform-limits.md
-friction-log.md

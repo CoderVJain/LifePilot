@@ -80,6 +80,16 @@ class Skill:
         }
 
 
+def _served_bytes(path: Path) -> bytes:
+    """The bytes a host actually receives, which is what its digest check runs against.
+
+    `read_text` translates newlines, so a CRLF checkout serves LF. Digesting `read_bytes()` instead
+    advertised 3413 bytes for the 3344 served on any Windows clone (`core.autocrlf` is Git's default
+    there), and SEP-2640 has the host reject the mismatch -- so the skill never loaded.
+    """
+    return path.read_text(encoding="utf-8").encode("utf-8")
+
+
 def digest_of(data: bytes) -> str:
     """`sha256:` plus the hex digest, the form the SEP's `digest` field takes."""
     return f"sha256:{hashlib.sha256(data).hexdigest()}"
@@ -126,7 +136,7 @@ def load_skills(root: Path = SKILL_ROOT) -> list[Skill]:
 
         files = []
         for path in sorted(p for p in entry.rglob("*") if p.is_file()):
-            data = path.read_bytes()
+            data = _served_bytes(path)
             files.append(
                 SkillFile(
                     uri=_uri(entry.name, path.relative_to(entry).as_posix()),

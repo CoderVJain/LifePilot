@@ -7,12 +7,20 @@ decisions and numbers worth not re-deriving.
 
 ---
 
-## Status (Oct 18 2026)
+## Status (Oct 20 2026)
 
-Build is complete bar the items below. **641 tests, ruff clean.** `make eval` runs experiments 1, 2,
+Build is complete bar the items below. **698 tests, ruff clean.** `make eval` runs experiments 1, 2,
 3, 4, 5 and 6 from one command, writing six CSVs and five PNGs with **zero model calls**. Exp 7 is
-cut. Every differentiator #1–#9 is built, and #1–#6 and #9 have now been exercised by voice in a
-browser.
+cut. Every differentiator #1–#9 is built, and **#1–#7 and #9 have now been exercised by voice in a
+browser** — #7 as of Oct 20, against a real Gmail inbox.
+
+**Oct 20 (sixth pass):** **the Gmail path ran end to end for the first time** — real inbox, real
+OAuth token, Bedrock extraction, proposal, Dad's spoken yes, task written. §5 is closed. Driving it
+found **five defects, none of which the suite could catch**, all fixed and re-verified in the
+browser; written up under §9. **698 tests, ruff clean**, exp 4 **100% / 100% / 100%** on the full
+set after re-recording two phrase replies (~$0.001). The through-line of all five: the data was
+right every single time and the **presentation layer dropped it** — which is the opposite of the
+failure mode the suite is built to catch.
 
 **Oct 18:** first full browser run found seven defects, three of them on camera. **Five fixed and
 re-verified in the browser the same day**, plus two found while re-testing. Experiment 4 unchanged
@@ -362,18 +370,36 @@ tests. 690 tests did not catch a single one. A person typing a sentence caught s
       travel-time table, **and that the Gmail path has never run against a real inbox**). Useful
       raw material for the README and the submission text.
 - [ ] **Correct `CLAUDE.md`'s counts again:** it says 18 registered and "14 vs 9". It is now **20
-      registered, 16 vs 9**. Its tool table is also missing `cancel_event`, `add_event` and
-      `scan_risks` as built, and still marks two of them "not built".
+      registered, 16 vs 9**. It also still quotes the coarse set at **82.2%** tool correctness;
+      measured Oct 20 it is **92.7%** (args 94.5%, answers 90.9%, all three 87.3%), and the
+      conclusion is unchanged — coarse is worse, so it stays a result to report. Its tool table is
+      also missing `cancel_event`, `add_event` and `scan_risks` as built, and still marks two of
+      them "not built". **Varun's call, not an assistant's** — it is the spec file.
 
-### 5. Gmail (#7), deferred by Varun
+### 5. Gmail (#7) — closed Oct 20
 
-- [ ] Write the fake school emails into the dedicated demo inbox and link it. The four fixtures
-      exist in `eval/emails/` (`costume_friday`, `closure_tomorrow`, `injection_cancel_pickups`,
-      `newsletter_no_task`) but have never been sent, so every mail test runs against the fake
-      client. **The path from real Gmail through Bedrock to the solver has not executed once**, and
-      it is the video's multi-service moment.
-- [ ] Set the allowed senders by voice, on camera.
-- [ ] Transcripts for #7, once the inbox has mail in it.
+- [x] **The path from real Gmail through Bedrock to the solver has now executed.** Dad linked
+      `lifepilot.demo.2026@gmail.com`, a costume email was sent from the sender playing the school,
+      `check_school_email` read it, Nova extracted the task, the week was checked, a proposal came
+      back and Dad's spoken yes wrote it. The stored row is exactly what `CLAUDE.md` promises:
+
+      ```
+      school_message: freelancer.dev05@gmail.com  2026-10-20  extracted   (no subject, no body)
+      task:           'Farmer costume for Annual Day'  owner=Aarav  due 2026-10-23  source=email
+      ```
+
+- [x] Allowed senders set by voice ("only read emails from ..."), and the allowlist refusal proved
+      real on the way: with no sender set, `check_school_email` declines rather than reading.
+- [ ] Transcripts for #7, now that the inbox has mail in it. Note the **cache by Gmail message id**
+      makes re-recording awkward: an email is extracted once ever, so a transcript needs a fresh
+      message or a cleared `school_message` row.
+- [ ] Still unexercised against a real inbox: the **closure** email (`closure_tomorrow`) and the
+      **injection** email (`injection_cancel_pickups`). Both pass against the fake client. The
+      injection one is the security claim in the README, so running it live is worth the ten
+      minutes.
+- [ ] **Re-link on video day.** Testing-mode refresh tokens expire every 7 days, so the Oct 20 link
+      is dead by Oct 27. Already in `CLAUDE.md`'s video-day list; repeated here because it is the
+      single most likely thing to break on camera and it is silent until email is asked for.
 
 ### 6. Optional
 
@@ -422,6 +448,53 @@ and I did not apply it. A reseed is not a neutral setup step; it is destroying w
 
 - [ ] Nothing to build. The rule is already written; it needs to be **followed for `demo.db` too**,
       and a reseed asked for rather than assumed whenever Varun has the browser open.
+
+### 9. Found by Varun driving Gmail, Oct 20 — four fixed, one open
+
+Every one of these had **correct data in the database** and lost it on the way to the person. The
+suite asserts tool results, so none of the four could have been caught by it. The question that
+exposed them — *"when is the farmer costume due"* — now answers in one sentence.
+
+- [x] **`"cost" in "costume"` declined a school task as a money question.** `MONEY` was matched as
+      a **substring**, so `_money_is_declined` overrode a correctly-routed `get_schedule` and
+      answered *"LifePilot keeps no record of money"* about a costume LifePilot had written down
+      itself. Nova was never wrong here; our own guard was. Now matched on whole words
+      (`MONEY_WORDS`), with six regression tests. **Sixth instance of the lesson that a cheap
+      keyword guard is a liability the moment the family's own vocabulary collides with it.**
+- [x] **Deadlines were spoken last, so the token limit ate them.** `_facts` appended `_task_facts`
+      after up to eight event lines, and `phrase` ran at `max_tokens=160`. A seven-event week was
+      cut mid-word and the costume was never said. Deadlines now come **before** the day's shape:
+      a deadline is the part that gets missed if it is not said, and school and work are the part
+      already known.
+- [x] **A truncated sentence could be spoken at all.** `max_tokens` is now 320 and `phrase` checks
+      `stopReason`: on `max_tokens` it says the computed facts instead of a sentence that stops
+      mid-word. No retry, no second call, so the ceiling is untouched.
+- [x] **The schedule card never drew tasks.** `agent.py` had been sending `card.tasks` in the
+      payload all along and `renderScheduleCard` only iterated `card.events` — the word `task`
+      appeared nowhere in `app.js`. Tasks now render as a "due" row with day and owner, before the
+      events, and a day with only deadlines no longer reads "Nothing visible to you this week."
+- [x] **The family's vocabulary did not include its own tasks.** `_known_things` indexed event
+      titles and locations only, so `_the_thing_they_named` could never match "costume" and the
+      question fell through to the model's guess — the asker's whole week. Tasks are now indexed
+      too. Half a fix on its own, though: with `title='costume'` but `about='Dad'`,
+      `context.get_schedule` filtered Aarav's task straight back out (`about='Dad'` → 0 tasks;
+      `about=None` → the costume). So `_when_is_question` now **drops `about` when the named thing
+      is a deadline**, because a deadline belongs to whoever owns it, not whoever asked. `work`
+      and the rest keep `about` — *"when does Mom finish work on Friday"* still answers about Mom.
+
+- [ ] **Open: the simulator never reconnects to the MCP server.** `lifespan` opens one `MCPClient`
+      at startup and holds it for the life of the process. Restart the MCP server and every
+      subsequent turn fails with `the client session is not running`, which the simulator reports
+      as **"Something went wrong reaching the language model"** — pointing at Bedrock, which is
+      fine. It cost half an hour of looking in the wrong place. Two options, neither built: say
+      which hop failed (cheap, honest, enough), or reconnect on a dead session (better, more work).
+      **Operationally for now: restart the simulator after the MCP server, always in that order.**
+
+**Not a defect, worth knowing:** "Nothing new from school" was correct when the allowlist named the
+**linked inbox** rather than the **sender playing the school** — the query `from:(the demo account)`
+genuinely matched nothing. The answer was honest and still sent us looking at the wrong thing. An
+allowlist equal to the linked account is a detectable mistake and could be worth one sentence back
+("that is the account you linked; who sends the school's email?").
 
 **Cut:** exp 7 (user study — not code, and the first item in the drop order; a study thin enough to
 run in the time would be the one invented number in a set where everything traces to a CSV). Stretch
@@ -590,12 +663,12 @@ Both plans applied and judged by the same detector.
 Somebody the rules bar, offered anyway on the decide path: **0%** stored, **100%** not. Per rule,
 times broken when not stored: `immovable_event` 5, `latest_end` 5, `buffer_after` 5, `eligibility` 5.
 
-**Exp 4 — tool use** (47 exchanges per arm, replayed free)
+**Exp 4 — tool use** (55 exchanges per arm, replayed free; re-recorded Oct 20)
 
 | toolset | schemas | tool | args | answers | all three |
 |---|---|---|---|---|---|
-| full | 15 | **100.0%** | **100.0%** | **100.0%** | **100.0%** |
-| coarse | 9 | 87.2% | 95.7% | 93.6% | 85.1% |
+| full | 16 | **100.0%** | **100.0%** | **100.0%** | **100.0%** |
+| coarse | 9 | 92.7% | 94.5% | 90.9% | 87.3% |
 
 **The coarse set is worse** — a result to report, not a mitigation held in reserve. Read the 100% with
 finding 2 above attached: for `what_if` it certifies routing, not the answer.
@@ -655,7 +728,10 @@ Written down because each has cost real time more than once.
 4. **Prompt wording is the expensive fix and usually the wrong one.** Four attempts, all net
    negative. The deterministic overrides (`_money_is_declined`, `_trouble_wins`) are what actually
    worked, and they are narrow on purpose: only a tool trying to answer from the family's own data is
-   ever overridden.
+   ever overridden. **But narrow in scope is not narrow in matching:** `_money_is_declined` tested
+   `"cost" in said`, so "costume" was money and a school task was declined (Oct 20). A keyword guard
+   matches **whole words**, or the family's own vocabulary will eventually collide with it. The next
+   collision is already written: `ERRANDS` carries `"buy "` and `"shopping"`.
 5. **A cassette key covers the phrasing call too.** A change to what a tool *returns* expires
    recordings just as a change to a prompt does. Compute the key both ways before spending anything.
 6. **Anything touching `simulator.*` must do it inside the test stack.** `conversation` freezes the
@@ -675,14 +751,28 @@ Written down because each has cost real time more than once.
    command acts on".
 10. **A question about one thing must be narrowed to that thing.** The model routes correctly and
    then leaves the narrowing field empty, so the server returns everything and the answer becomes a
-   recital. Three separate outings now -- `_lift_question`, `_correct_title`, `_when_is_question` --
-   and each was reported as "it doesn't answer my question", never as "the title was empty". When
-   an answer is true, complete and not what was asked, look at the **arguments**, not the wording.
+   recital. Four separate outings now -- `_lift_question`, `_correct_title`, `_when_is_question`,
+   and tasks missing from `_known_things` (Oct 20) -- and each was reported as "it doesn't answer my
+   question", never as "the title was empty". When an answer is true, complete and not what was
+   asked, look at the **arguments**, not the wording. The Oct 20 one adds a second half: narrowing
+   to the right **thing** is not enough if the answer stays narrowed to the wrong **person**. A
+   deadline belongs to whoever owns it, so `about` has to go with it.
 11. **An answer outside the tool set should be a refusal, not a near miss.** Asked which day a lunch
    could go, LifePilot reported on today, because there is no free-slot search and `get_schedule`
    was the closest thing. A near-miss answer reads as "it does not understand me"; `cannot_help`
    reads as an honest limit. The model is not at fault -- it may never judge availability -- but
    routing to the nearest tool and answering anyway is worse than declining.
+12. **Right in the database is not right in the answer.** All five Oct 20 defects had correct rows
+   and correct tool output; every one of them was lost **after** the tool returned -- eaten by a
+   keyword guard, cut off by a token limit, left out of the card renderer, or filtered by an
+   argument. The suite asserts tool results, so it was green through all five. The cheap check that
+   would have caught four of them is one line: call the tool directly, then compare what it returned
+   against what the page said and the voice spoke. `get_schedule` returned the costume the whole
+   time.
+13. **Say which hop failed.** "Something went wrong reaching the language model" was shown for a
+   dead **MCP session**, and sent half an hour into Bedrock, credentials and TLS -- while a one-call
+   `converse` proved the model fine in seconds. A fallback message that names the wrong subsystem is
+   worse than a generic one.
 
 ---
 
@@ -976,6 +1066,7 @@ never sent; `assert_patchable()` fails loudly if an upgrade moves the name) · M
 - [ ] Negotiated protocol version 2025-11-25+ **on the wire**; SDK called at runtime.
 - [ ] Demo script end to end in one sitting, after the browser-run fixes land.
 - [ ] `make eval` from clean; every README number traced to a CSV. Nothing typed by hand.
-- [ ] All Gmail security tests passing.
+- [ ] All Gmail security tests passing, and the **prompt-injection email run once against the real
+      inbox** — it is the README's security claim and has only ever run against the fake client.
 - [ ] Every registered tool either routable or noted as deliberately not.
 - [ ] Labels visible; MIT in the GitHub About section; no Amazon marks in the UI or video.

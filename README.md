@@ -36,12 +36,12 @@ Try, in order: `any problems this week` → `who should pick up Aarav` → `why 
 ### Tests and numbers
 
 ```bash
-uv run pytest                           # 369 tests, offline, free
+uv run pytest                           # 698 tests, offline, free
 uv run python -m eval.run --exp 4       # end-to-end, replayed from recordings, free
 uv run python -m eval.run --exp 1       # conflict detection vs. an overlap check
 ```
 
-Every number in this repo comes from `eval/`, never typed in by hand. Experiment 4 runs 35 real
+Every number in this repo comes from `eval/`, never typed in by hand. Experiment 4 runs 55 real
 utterances through the whole stack — words → Nova → tool choice → MCP → spoken answer — and currently
 scores **100% tool correctness, 100% argument correctness, 100% answer correctness**. Model replies are
 recorded to `eval/cassettes/`, so re-running costs nothing; `--with-llm` re-records deliberately.

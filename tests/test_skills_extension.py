@@ -167,3 +167,23 @@ def test_frontmatter_parsing_ignores_a_file_without_any():
 def test_the_skill_root_ships_with_the_repo():
     """A judge running from a fresh clone must get the skill, so it is committed, not generated."""
     assert (Path(SKILL_ROOT) / "lifepilot" / "SKILL.md").is_file()
+
+
+async def test_a_crlf_checkout_still_serves_the_bytes_it_advertised(tmp_path):
+    """Found by a fresh-clone run, not by this suite: `core.autocrlf` is Git's default on Windows,
+    so a judge's checkout holds CRLF while `read_text` serves LF. Digesting the raw file advertised
+    3413 bytes for the 3344 served, and SEP-2640 has the host reject that -- the skill never loads.
+    The working tree is LF, so the mismatch was invisible here; this writes the CRLF itself.
+    """
+    skill = tmp_path / "lifepilot"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(b"---\r\nname: lifepilot\r\n---\r\n\r\nUse the tools.\r\n")
+
+    ext = Skills(root=tmp_path)
+    served = {str(b.resource.uri): b.resource.text for b in ext.resources()}
+    listed = (await ext._list(None, ListSkillsParams()))["skills"][0]
+
+    for file in listed["resources"]:
+        body = served[file["uri"]].encode("utf-8")
+        assert digest_of(body) == file["digest"], "advertised a digest for bytes it does not serve"
+        assert len(body) == file["size"]
