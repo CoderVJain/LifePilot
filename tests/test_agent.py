@@ -1843,6 +1843,80 @@ def test_who_the_replacement_is_with_is_read_from_the_sentence(monkeypatch):
     assert asked["replace_members"] == ["Mom"], "Grandpa is what is being cancelled, not a guest"
 
 
+def test_who_a_booking_is_with_is_read_from_the_sentence(monkeypatch):
+    """"Book lunch with Mom" landed on Dad's calendar alone. `_members` falls back to the asker
+    when no `members` arrive, and the model drops exactly that name -- the fifth time a name in the
+    sentence had to be read from the sentence. The asker stays on it: it is lunch with her, not
+    hers alone."""
+    agent_module = _rule_agent(
+        monkeypatch,
+        ("add_event", {"title": "lunch", "start": "2026-10-22T13:00:00"}),
+    )
+    sent = []
+
+    def fake_call(mcp, tool, arguments):
+        sent.append((tool, arguments))
+        if tool == "get_family":
+            return {"members": [{"name": n} for n in ("Dad", "Mom", "Aarav", "Anaya", "Grandpa")],
+                    "locations": []}, {"tool": tool, "status": "success", "tool_ms": 1}
+        if tool == "get_schedule":
+            return {"events": []}, {"tool": tool, "status": "success", "tool_ms": 1}
+        return {"say": "Lunch for Dad and Mom.", "proposal_id": 9}, {
+            "tool": tool, "status": "success", "tool_ms": 1
+        }
+
+    agent_module.answer(None, "Dad", "book lunch with Mom at 1 PM on Thursday", fake_call, {})
+    asked = next(args for tool, args in sent if tool == "add_event")
+
+    assert asked["members"] == ["Dad", "Mom"], "the asker and the person named, not the asker alone"
+
+
+def test_a_booking_adds_the_named_person_to_the_ones_the_model_gave(monkeypatch):
+    """The shape actually seen in a browser, which the first version of this fix missed: the model
+    filled `members` with `["Dad"]` rather than leaving it empty, so a fallback for the empty case
+    never fired and the event read "Lunch with Mom" with Mom not on it. A union, not a default."""
+    agent_module = _rule_agent(
+        monkeypatch,
+        ("add_event", {"title": "Lunch with Mom", "start": "2026-10-22T13:00", "members": ["Dad"]}),
+    )
+    sent = []
+
+    def fake_call(mcp, tool, arguments):
+        sent.append((tool, arguments))
+        if tool == "get_family":
+            return {"members": [{"name": n} for n in ("Dad", "Mom", "Aarav", "Anaya", "Grandpa")],
+                    "locations": []}, {"tool": tool, "status": "success", "tool_ms": 1}
+        if tool == "get_schedule":
+            return {"events": []}, {"tool": tool, "status": "success", "tool_ms": 1}
+        return {"say": "Lunch for Dad and Mom.", "proposal_id": 9}, {
+            "tool": tool, "status": "success", "tool_ms": 1
+        }
+
+    agent_module.answer(None, "Dad", "book lunch with Mom at 1 PM on Thursday", fake_call, {})
+    asked = next(args for tool, args in sent if tool == "add_event")
+
+    assert asked["members"] == ["Dad", "Mom"], "Mom is added to what the model named, not dropped"
+
+
+def test_a_booking_with_nobody_named_never_reads_the_roster(monkeypatch):
+    """The two extra tool calls only happen when the sentence says "with"."""
+    agent_module = _rule_agent(
+        monkeypatch,
+        ("add_event", {"title": "dentist", "start": "2026-10-23T10:00:00"}),
+    )
+    calls = []
+
+    def fake_call(mcp, tool, arguments):
+        calls.append(tool)
+        return {"say": "Dentist for Dad.", "proposal_id": 4}, {
+            "tool": tool, "status": "success", "tool_ms": 1
+        }
+
+    agent_module.answer(None, "Dad", "book a dentist at 10 on Friday", fake_call, {})
+
+    assert calls == ["add_event"], "no roster lookup when nobody is named"
+
+
 def test_a_plain_cancellation_never_reads_the_roster(monkeypatch):
     """The two extra tool calls only happen when something is being put in its place."""
     agent_module = _rule_agent(monkeypatch, ("cancel_event", {"title": "football practice"}))

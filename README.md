@@ -27,16 +27,22 @@ DATABASE_URL="sqlite+pysqlite:///demo.db" uv run uvicorn lifepilot.server:app --
 uv run uvicorn simulator.app:app --port 8000
 ```
 
-Open <http://127.0.0.1:8000>. Set `LIFEPILOT_LLM=0` on the simulator to run the offline keyword path
-with no Bedrock calls at all.
+Open <http://127.0.0.1:8000>.
 
 Try, in order: `any problems this week` → `who should pick up Aarav` → `why not Grandpa` →
 `fix our week` → `yes` → `what is the piano class timing` → `book a dentist at 10 on Friday` → `yes`.
 
+That sequence needs AWS credentials, because understanding a phrasing is the model's job. Without
+them, set `LIFEPILOT_LLM=0` on the simulator for the offline keyword path: every tool, the solver and
+the cards still work and nothing calls Bedrock, but it answers only a handful of set phrasings —
+`any problems this week`, `who is in the family`, `what is happening this week` — and says so when a
+sentence is not one of them. **Start the MCP server before the simulator:** the simulator opens one
+MCP session at startup and holds it, so a simulator started first never connects.
+
 ### Tests and numbers
 
 ```bash
-uv run pytest                           # 698 tests, offline, free
+uv run pytest                           # 705 tests, offline, free
 uv run python -m eval.run --exp 4       # end-to-end, replayed from recordings, free
 uv run python -m eval.run --exp 1       # conflict detection vs. an overlap check
 ```

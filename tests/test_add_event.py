@@ -280,6 +280,21 @@ def test_a_long_containing_block_is_not_offered_for_deletion(session):
     assert "Shall I still put it in?" in asked["say"]
 
 
+def test_every_break_is_said_not_only_the_first(session):
+    """Found by driving a booking with somebody else in it -- the first case here with more than
+    one break. The sentence announced "it breaks 2 things" and named one, while the card beside it
+    listed both: a parent approving a problem nobody told them about."""
+    asked = add_event(
+        session, "Dad", title="lunch with Mom", start="2026-10-09T13:00", end="2026-10-09T14:00",
+        members=["Dad", "Mom"],
+    )
+
+    assert len(asked["breaks"]) > 1, "two people, two working days, two clashes"
+    assert "breaks 2 things" in asked["say"]
+    for broken in asked["breaks"]:
+        assert broken["detail"] in asked["say"], "announced a count, then said only the first"
+
+
 def test_somebody_elses_commitment_does_not_block_you(session):
     """Mom's work is not in the way of Dad booking an hour."""
     asked = add_event(session, "Mom", title="yoga", start="2026-10-09T18:00",

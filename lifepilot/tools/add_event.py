@@ -246,6 +246,10 @@ def _describe(change: dict, effect, begins: datetime, finishes: datetime, taken=
 
     if not effect.breaks:
         return f"{opening} Nothing else breaks. Shall I put it in?"
-    first = effect.breaks[0]
+    # Every one of them, not just the first. Announcing "it breaks 2 things" and then naming one
+    # asks a parent to approve a problem they were never told about -- and the card beside this
+    # sentence lists both, so the two answers disagreed. Surfaced once booking with somebody else
+    # put them in the clash too, which is the first case here with more than one break.
     count = "one thing" if len(effect.breaks) == 1 else f"{len(effect.breaks)} things"
-    return f"{opening} It breaks {count}: {first.detail}. Shall I still put it in?"
+    details = ". ".join(c.detail for c in effect.breaks)
+    return f"{opening} It breaks {count}: {details}. Shall I still put it in?"

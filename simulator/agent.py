@@ -791,6 +791,21 @@ def _propose_event(mcp, speaker, text, arguments, call_tool, state, budget, star
     approve is the one place rewording cannot be allowed.
     """
     clean = _correct_the_day(_safe_arguments("add_event", arguments, speaker), text)
+
+    # "Book lunch with Mom" put the lunch on Dad's calendar alone. Driven in a browser, the model
+    # did not leave `members` empty -- it filled it `["Dad"]`, so a fallback for the empty case
+    # never fired and the event read "Lunch with Mom" with Mom not on it. So this is a union, not a
+    # default: anyone the sentence names after "with" is added to whoever the model named. Same
+    # helper as `cancel_event`'s replacement leg -- a name in the sentence is read from the
+    # sentence. Only when the sentence says "with", so the common path costs nothing.
+    if " with " in text.lower():
+        _known_things(mcp, speaker, call_tool, state)
+        named = _people_after_with(text, state.get("known_people", {}), speaker)
+        already = clean.get("members") or [speaker]
+        missing = [name for name in named if name not in already]
+        if missing:
+            clean["members"] = [*already, *missing]
+
     if not clean.get("title") or not clean.get("start"):
         return Turn(
             speak="I need to know what it is and when, before I can put it in.",

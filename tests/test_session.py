@@ -93,3 +93,31 @@ def test_switching_speaker_clears_the_previous_session_from_screen():
     assert "function clearThread()" in client
     switcher = client.split('document.querySelectorAll(".speaker").forEach')[-1]
     assert "clearThread();" in switcher, "the switch itself has to clear it, not merely be able to"
+
+
+# --------------------------------------------------------------------------- which hop failed
+
+def test_a_dead_mcp_session_is_not_reported_as_a_model_problem():
+    """`lifespan` opens one MCP session and holds it for the life of the process, so restarting the
+    MCP server alone leaves it broken for good. Reporting that as "reaching the language model"
+    sent two people into Bedrock credentials while the server was simply not running -- the second
+    time costing half an hour. The hop that failed belongs in the answer.
+    """
+    from simulator.app import _why_degraded
+
+    dead = RuntimeError(
+        "the client session is not running. Ensure the agent is used within the MCP client "
+        "context manager."
+    )
+    closed = RuntimeError("Tool execution failed: Connection to the MCP server was closed")
+
+    for failure in (dead, closed):
+        assert "planning server" in _why_degraded(failure)
+        assert "language model" not in _why_degraded(failure)
+
+
+def test_a_real_model_failure_still_says_so():
+    """The new branch must not swallow the case it was carved out of."""
+    from simulator.app import _why_degraded
+
+    assert "language model" in _why_degraded(RuntimeError("ThrottlingException: rate exceeded"))

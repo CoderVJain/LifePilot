@@ -216,9 +216,23 @@ async def _answer(mcp, speaker: str, text: str, state: dict) -> Turn:
         return turn
 
 
+#: A dead MCP session, in the words the SDK uses for it. The session is opened once in `lifespan`
+#: and held for the life of the process, so restarting the MCP server alone leaves this one broken
+#: for good -- start the MCP server first, then the simulator.
+MCP_HOP_DOWN = ("client session is not running", "connection to the mcp server")
+
+
 def _why_degraded(failure: Exception) -> str:
+    """Which hop failed, in the answer itself.
+
+    Naming the wrong hop costs more than saying nothing: a dead MCP session reported as a model
+    problem sent two people hunting through Bedrock credentials while the server was simply not
+    running. The model and the MCP server are different machines to restart.
+    """
     if isinstance(failure, InterceptedHTTPS):
         return "I cannot reach the language model, so I am only following a few set phrases."
+    if any(marker in str(failure).lower() for marker in MCP_HOP_DOWN):
+        return "I cannot reach the planning server, so I am only following a few set phrases."
     return "Something went wrong reaching the language model, so I am on the simple phrases only."
 
 
