@@ -293,6 +293,8 @@ body {
 .pill.is-transport { border-color: var(--accent-line); color: var(--accent); }
 .pill.is-alarm { border-color: var(--alarm); color: var(--alarm); }
 .pill.is-fixed { border-color: var(--line); }
+.pill.is-due { border-color: var(--accent-line); color: var(--accent); }
+.pill.is-owner { border-color: var(--line); }
 
 .row.is-problem { align-items: flex-start; background: var(--alarm-soft); }
 .row.is-problem .row-what { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }

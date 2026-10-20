@@ -119,6 +119,16 @@ def say_reason(reason: str) -> str:
     return reason
 
 
+#: "today", "tomorrow" and "yesterday" are already adverbs, so "on today at 5 PM" and "on tomorrow"
+#: are not English. Every other day takes the preposition: "on Thursday".
+ADVERBIAL_DAYS = ("today", "tomorrow", "tonight", "yesterday")
+
+
+def say_on(when: str) -> str:
+    """A day with its preposition, or without one when the day does not take one."""
+    return when if when.startswith(ADVERBIAL_DAYS) else f"on {when}"
+
+
 def say_list(items: list[str], joiner: str = "and") -> str:
     """Joined the way it would be said: a, b and c. `joiner="or"` for a choice being offered."""
     if not items:

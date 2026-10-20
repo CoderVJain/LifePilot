@@ -180,13 +180,36 @@
   function renderScheduleCard(card) {
     const { el, body } = cardShell("schedule", card.title);
 
-    if (!card.events.length) {
+    const tasks = card.tasks || [];
+
+    if (!card.events.length && !tasks.length) {
       const row = document.createElement("div");
       row.className = "row";
       row.textContent = "Nothing visible to you this week.";
       body.appendChild(row);
       return el;
     }
+
+    // Deadlines first, and without a time: a costume is due on Friday, not at midnight on Friday.
+    // They were sent in the payload and never drawn, so a task approved from a school email was
+    // in the database, spoken about, and absent from the card beside the answer.
+    tasks.forEach((task) => {
+      const row = document.createElement("div");
+      row.className = "row is-due";
+
+      const when = document.createElement("span");
+      when.className = "row-when";
+      when.textContent = shortDay(task.due);
+
+      const what = document.createElement("span");
+      what.className = "row-what";
+      what.textContent = task.title;
+      what.appendChild(pill("due", "is-due"));
+      if (task.owner) what.appendChild(pill(task.owner, "is-owner"));
+
+      row.append(when, what);
+      body.appendChild(row);
+    });
 
     card.events.forEach((event) => {
       const row = document.createElement("div");
@@ -512,6 +535,12 @@
     const [y, m, d] = datePart.split("-").map(Number);
     const day = DAYS[new Date(y, m - 1, d).getDay()];
     return `${day} ${clock(timePart)}`.trim();
+  }
+
+  function shortDay(iso) {
+    // A deadline is a day. Reusing shortWhen put "Fri 12 am" on a task stored at midnight.
+    const [y, m, d] = String(iso).split("T")[0].split("-").map(Number);
+    return DAYS[new Date(y, m - 1, d).getDay()];
   }
 
   function shortSpan(startIso, endIso) {

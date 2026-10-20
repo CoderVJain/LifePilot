@@ -9,19 +9,20 @@ backwards. It is the opposite question: what did this event unblock, and who sti
 That is `what_if(kind="cancelled")`, which already computes exactly this ripple and changes nothing.
 """
 
+import re
 from datetime import date, datetime
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from lifepilot.db.models import Event, Member, Proposal
+from lifepilot.db.models import Assignment, Event, Member, Proposal
 from lifepilot.engine.conflicts import detect
 from lifepilot.engine.whatif import CANCELLED, apply_hypothetical, ripple
 from lifepilot.tools.context import resolve_viewer
 from lifepilot.tools.detect_conflicts import load_week
 from lifepilot.tools.fix_week import NotAllowed
 from lifepilot_shared.clock import today
-from lifepilot_shared.speech import plural, say_list, say_span
+from lifepilot_shared.speech import plural, say_day, say_list, say_on, say_span
 from lifepilot_shared.week import demo_week
 
 
@@ -71,7 +72,11 @@ def cancel_event(
             "say": _which_one(question),
         }
     if event is None:
-        return {"cancelled": False, "say": _nothing_like_that(session, family_id, title, at)}
+        return {
+            "cancelled": False,
+            "found": False,
+            "say": _nothing_like_that(session, family_id, viewer, title, at, day),
+        }
 
     week = load_week(session, family_id, *_window_for(event))
 
@@ -160,8 +165,31 @@ def _matching(session, family_id, title, at, day) -> list[Event]:
 
     wanted = (title or "").strip().lower()
     if wanted:
-        events = [e for e in events if wanted in e.title.lower()]
+        events = _by_title(events, wanted)
     return events
+
+
+#: Words people wrap around the name of a thing without naming anything. "Cancel the work event"
+#: means the event called work; matching the whole phrase looked for an event called "work event"
+#: and found nothing, while the diary plainly had one called "work".
+GENERIC_WORDS = {"event", "the", "a", "an", "my", "our", "this", "that", "appointment"}
+
+
+def _by_title(events: list[Event], wanted: str) -> list[Event]:
+    """Events the words could be naming.
+
+    The whole phrase first, because it is the most precise. Failing that, any event sharing a real
+    word with it -- which is how "the work event" finds work. A phrase with no real words left, like
+    "Tuesday 9:30 to 2:15 p.m.", matches nothing, which is right: it names a time, not a thing.
+    """
+    exact = [e for e in events if wanted in e.title.lower()]
+    if exact:
+        return exact
+
+    words = set(re.findall(r"[a-z]+", wanted)) - GENERIC_WORDS
+    if not words:
+        return []
+    return [e for e in events if words & set(re.findall(r"[a-z]+", e.title.lower()))]
 
 
 def _window_for(event: Event) -> tuple[date, date]:
@@ -348,14 +376,43 @@ def _which_one(question: Ambiguous) -> str:
     return f"Which one: {options}?"
 
 
-def _nothing_like_that(session, family_id: int, title: str | None, at: str | None) -> str:
-    titles = sorted(
-        {t for (t,) in session.execute(
-            sa.select(Event.title).where(Event.family_id == family_id).distinct()
-        )}
-    )
-    if not titles:
-        return "There is nothing in the diary to cancel."
-    known = say_list(titles)
+def _nothing_like_that(session, family_id: int, viewer, title: str | None, at: str | None,
+                       day: date | None) -> str:
+    """Nothing matched -- so say what there *is*, on the day they asked about, for them.
+
+    This used to list every distinct title in the whole family's diary, whatever had been asked.
+    Told "you have two things tomorrow" and then, one sentence later, a list of ten including other
+    people's piano and cricket, a parent reasonably concludes it has lost track of the schedule. The
+    answer to "I cannot find X" is what *is* there, in the same scope as the question.
+    """
     said = title or at or "that"
-    return f"I cannot find {said} in the diary. There is: {known}."
+    titles = _theirs_on(session, family_id, viewer, day)
+    where = f" {say_on(say_day(day))}" if day else " that week"
+    if not titles:
+        return f"You have nothing{where} to cancel."
+    return f"I cannot find {said}{where}. You have: {say_list(sorted(titles))}."
+
+
+def _theirs_on(session, family_id: int, viewer, day: date | None) -> set[str]:
+    """What this person has that day: their own events, and the ones they are down to drive."""
+    start, end = (day, day) if day else demo_week()
+    window_start = datetime.combine(start, datetime.min.time())
+    window_end = datetime.combine(end, datetime.max.time())
+
+    driving = set(
+        session.scalars(
+            sa.select(Assignment.event_id).where(Assignment.member_id == viewer.member_id)
+        )
+    )
+    events = session.scalars(
+        sa.select(Event).where(
+            Event.family_id == family_id,
+            Event.start >= window_start,
+            Event.start <= window_end,
+        )
+    )
+    return {
+        e.title
+        for e in events
+        if viewer.member_id in (e.member_ids or ()) or e.id in driving
+    }

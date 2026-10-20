@@ -24,6 +24,7 @@ from lifepilot_shared.speech import (
     say_day,
     say_lift,
     say_list,
+    say_on,
     say_span,
     say_when,
     say_window,
@@ -548,6 +549,12 @@ def _route_once(text: str, speaker: str, budget: Budget):
     raise RuntimeError("unreachable")
 
 
+#: Room for the whole fact list. At 160 a week with seven events was cut off mid-word, and what
+#: fell off the end were the deadlines, which are said last. Output tokens only, so the extra room
+#: costs a few hundredths of a cent a turn.
+PHRASE_MAX_TOKENS = 320
+
+
 def phrase(text: str, facts: list[str], budget: Budget) -> str:
     """Ask Nova to word a list of facts we computed. It adds no information of its own.
 
@@ -565,10 +572,18 @@ def phrase(text: str, facts: list[str], budget: Budget) -> str:
         ],
         system=PHRASE_SYSTEM,
         turn=budget,
-        max_tokens=160,
+        max_tokens=PHRASE_MAX_TOKENS,
     )
     blocks = response["output"]["message"]["content"]
-    return "".join(block.get("text", "") for block in blocks).strip()
+    said = "".join(block.get("text", "") for block in blocks).strip()
+
+    # A sentence that ran out of room is worse than a plain one: it stops mid-word, and what it
+    # never reached is whatever sits at the end of the list. The facts are already whole sentences,
+    # so there is a correct answer to fall back to without asking the model a second time.
+    if response.get("stopReason") == "max_tokens":
+        logger.warning("the spoken answer hit the token limit; saying the facts as computed")
+        return " ".join(facts)
+    return said
 
 
 # Answering a read-back question is a yes/no, not a request. Deciding it in code costs nothing and
@@ -716,7 +731,9 @@ def answer(mcp, speaker: str, text: str, call_tool, state: dict | None = None) -
             arguments["at"] = spoken_at
 
     if tool == "get_schedule":
-        arguments = _lift_question(arguments, text, _known_things(mcp, speaker, call_tool, state))
+        known = _known_things(mcp, speaker, call_tool, state)
+        arguments = _lift_question(arguments, text, known)
+        arguments = _when_is_question(arguments, text, known, state.get("known_due"))
 
         # If they named a day, that is the day. This used to apply only when a time was named too,
         # so "can I say yes to a six o'clock on Friday" was fixed while "give me Tuesday's schedule"
@@ -815,7 +832,7 @@ def _propose_cancel(mcp, speaker, text, arguments, call_tool, state, budget, sta
     # filled in the Tuesday; piano is on Thursday, so the answer was "I cannot find piano class"
     # followed by a list of the diary with piano class in it. A day it invented narrows the search
     # to the wrong day, so a day nobody said is dropped rather than trusted.
-    day = _the_one_named_day(text)
+    day = _day_meant(text)
     clean.pop("day", None)
     if day is not None:
         clean["day"] = day.isoformat()
@@ -844,6 +861,19 @@ def _propose_cancel(mcp, speaker, text, arguments, call_tool, state, budget, sta
     if not result:
         return Turn(speak=_blocked(debug, "cancel that"), debug=debug)
 
+    # Nothing matched, so try the title the sentence names rather than the one the model invented.
+    # "Work for Tuesday 9:30 to 2:15 p.m. cancel it" came back with the whole time phrase as the
+    # title while the diary plainly had one called work -- the same fix `what_if` needed for
+    # `title: "my"`. Done only on a miss, so the common path pays nothing: one more call to the
+    # server, no model call, exactly as `_decide` already recovers from "which lift?".
+    if result.get("found") is False:
+        better = _correct_title(clean, text, _known_things(mcp, speaker, call_tool, state))
+        if better.get("title") != clean.get("title"):
+            clean = better
+            result, debug = call_tool(mcp, "cancel_event", {"speaker": speaker, **clean})
+            if not result:
+                return Turn(speak=_blocked(debug, "cancel that"), debug=debug)
+
     cards = []
     if result.get("proposal_id"):
         state.setdefault("pending_proposal", {})[speaker] = result["proposal_id"]
@@ -859,6 +889,22 @@ def _propose_cancel(mcp, speaker, text, arguments, call_tool, state, budget, sta
         cards=cards,
         debug={**debug, **_debug("cancel_event", clean, budget, started)},
     )
+
+
+#: Days people name without naming a weekday. "Cancel the work event for tomorrow" picks out one day
+#: as surely as "on Thursday" does, and `named_day` only ever knew weekday names -- so the day was
+#: dropped and the search ran over the whole week, where five identical "work" rows made it a
+#: question instead of an answer.
+RELATIVE_DAYS = {"tonight": 0, "today": 0, "tomorrow": 1, "yesterday": -1}
+
+
+def _day_meant(text: str) -> date | None:
+    """The day the sentence names, said either way."""
+    said = text.lower()
+    for word, offset in RELATIVE_DAYS.items():
+        if word in said:
+            return clock_today() + timedelta(days=offset)
+    return _the_one_named_day(text)
 
 
 def _people_after_with(text: str, people: dict, speaker: str) -> list[str]:
@@ -1715,6 +1761,10 @@ def _booking_wins(tool: str, arguments: dict, text: str, speaker: str, budget: B
 #: no cost, price or currency field anywhere in the data model -- so these can never be answered.
 MONEY = ("spend", "spent", "cost", "costs", "how much did", "how much do", "fees", "fee for")
 
+#: Whole words only. A substring match read "costume" as "cost" and declined a question about a
+#: school task LifePilot had written down itself, with "LifePilot keeps no record of money".
+MONEY_WORDS = re.compile(r"\b(?:" + "|".join(re.escape(word) for word in MONEY) + r")\b")
+
 
 def _money_is_declined(tool: str, arguments: dict, text: str) -> tuple[str, dict]:
     """A question about money is declined, whatever tool was chosen.
@@ -1727,7 +1777,7 @@ def _money_is_declined(tool: str, arguments: dict, text: str) -> tuple[str, dict
     if tool in {"cannot_help", "add_event", "approve_proposal", "reject_proposal"}:
         return tool, arguments
     said = text.lower()
-    if not any(word in said for word in MONEY):
+    if not MONEY_WORDS.search(said):
         return tool, arguments
     return "cannot_help", {"reason": "LifePilot keeps no record of money"}
 
@@ -1817,6 +1867,7 @@ def _known_things(mcp, speaker: str, call_tool, state: dict) -> set[str]:
 
     known: set[str] = set()
     people: set[str] = set()
+    due: set[str] = set()
     try:
         data, _ = call_tool(
             mcp,
@@ -1829,6 +1880,12 @@ def _known_things(mcp, speaker: str, call_tool, state: dict) -> set[str]:
             known |= _ways_of_saying(str(event["title"]))
             if event.get("location"):
                 known |= _ways_of_saying(str(event["location"]))
+        # Tasks as well as events. Without them "when is the farmer costume due" named nothing the
+        # family owned, so the question fell through to the model's guess -- the speaker's whole
+        # week -- and never mentioned the costume LifePilot had written down from a school email.
+        for task in (data or {}).get("tasks", []):
+            due |= _ways_of_saying(str(task["title"]))
+        known |= due
         family, _ = call_tool(mcp, "get_family", {"speaker": speaker})
         for place in (family or {}).get("locations", []):
             known |= _ways_of_saying(str(place))
@@ -1843,6 +1900,9 @@ def _known_things(mcp, speaker: str, call_tool, state: dict) -> set[str]:
     # A member's name is not a thing to ask the schedule about: "collect Aarav from school" is about
     # school, and leaving names in would make the longest match "aarav".
     state["known_things"] = known - people
+    # Which of those are deadlines rather than appointments. A deadline belongs to whoever owns it,
+    # so a question naming one must not stay narrowed to the asker: see `_when_is_question`.
+    state["known_due"] = due - people
     return state["known_things"]
 
 
@@ -1907,6 +1967,40 @@ def _lift_question(arguments: dict, text: str, known: set[str]) -> dict:
         return arguments
     # The question is about the thing, not about whoever asked.
     return {**{k: v for k, v in arguments.items() if k != "about"}, "title": named}
+
+
+#: Asking when one particular thing is. "What have I got today" asks for a day and wants the day;
+#: "when do I have lunch with Mom" asks about one thing, and the whole week back is a recital.
+WHEN_WORDS = ("when do", "when is", "when's", "when are", "when does",
+              "what time is", "what time do", "what time does")
+
+
+def _when_is_question(arguments: dict, text: str, known: set[str], due: set[str] | None = None) -> dict:
+    """"When do I have lunch with Mom" is a question about lunch, not a request for the week.
+
+    Asked that, the model filled `start`, `end` and `about` and left `title` empty, so eight work
+    blocks were read out and the lunch -- which was not in the loaded week at all -- never came up.
+    The thing is named in the sentence and the family's own event names are already loaded, so it
+    is read from there, the same rule as the day and the same shape as `_lift_question`.
+
+    `about` is kept, unlike in a lift question: "when does Mom finish work" is about Mom *and*
+    about work, and dropping her would answer with everybody's working day.
+
+    Except for a deadline, which belongs to whoever owns it. "When is the farmer costume due" was
+    narrowed to the asker, and a costume owned by Aarav was filtered straight back out again -- the
+    right title and still the wrong answer. A thing in `due` is the household's, so `about` goes.
+    """
+    if arguments.get("title") or arguments.get("at"):
+        return arguments
+    if not any(word in text.lower() for word in WHEN_WORDS):
+        return arguments
+
+    named = _the_thing_they_named(text, known)
+    if named is None:
+        return arguments
+    if named in (due or set()):
+        return {**{k: v for k, v in arguments.items() if k != "about"}, "title": named}
+    return {**arguments, "title": named}
 
 
 def _correct_the_day(arguments: dict, text: str) -> dict:
@@ -2084,6 +2178,11 @@ def _facts(tool: str, data: dict, speaker: str) -> list[str]:
         owner = f"{speaker} can see"
     facts = [f"{owner} {plural(len(answerable), 'thing')} {window}."]
 
+    # Deadlines before the day's shape. They were last, so a week with seven events pushed them
+    # past the token limit and a costume due on Friday was never spoken. A deadline is the part
+    # that gets missed if it is not said, and school and work are the part already known.
+    facts.extend(_task_facts(tasks))
+
     # Reading out nineteen events is a recital, not an answer, and it ran past the token limit
     # mid-sentence. Your own day is listed in full, because you asked for it. The family's week gets
     # its shape plus the parts that need somebody to drive.
@@ -2116,11 +2215,6 @@ def _facts(tool: str, data: dict, speaker: str) -> list[str]:
     # Last, and only when nothing was asked for in particular. Aarav asking about football heard
     # "12 other blocks of time belong to other people" before his answer, which sounds like a refusal
     # to a question nobody asked.
-    # Deadlines after the day's shape, because a task is not a time of day. Without this they were
-    # fetched, handed to the card and never spoken: a task added by voice could be approved, written
-    # to the database, and then missing from every answer about the day it was due.
-    facts.extend(_task_facts(tasks))
-
     if hidden and not subject:
         facts.append(f"{plural(hidden, 'other block')} of time belong to other people.")
     return facts
@@ -2160,7 +2254,11 @@ def _named_facts(data: dict, speaker: str) -> list[str]:
     if not found:
         if due:
             return _task_facts(due)
-        return [f"There is no {named} in the week that is loaded, {say_window(WEEK_START, WEEK_END)}."]
+        # The window that was actually searched, not the one the session loaded: the card beside
+        # this says Monday to Friday, and a sentence saying "last Saturday to Friday" beside it
+        # reads as two different answers to one question.
+        searched = say_window(data["from"], data["to"])
+        return [f"There is no {named} between {searched}."]
 
     facts = []
     for event in found[:4]:
@@ -2277,15 +2375,10 @@ def _event_fact(event: dict, with_day: bool, mine_only: bool = False) -> str:
     return f"{whose}: {event['title']} {when}{where}{lift}."
 
 
-#: "today", "tomorrow" and "yesterday" are already adverbs, so "on today at 5 PM" is not English.
-#: Every other day takes the preposition: "On Thursday at 5 PM".
-ADVERBIAL_DAYS = ("today", "tomorrow", "yesterday")
-
-
 def _on(when: str) -> str:
-    if when.startswith(ADVERBIAL_DAYS):
-        return when[:1].upper() + when[1:]
-    return f"On {when}"
+    """The same rule `say_on` applies, capitalised because this one opens a sentence."""
+    said = say_on(when)
+    return said[:1].upper() + said[1:]
 
 
 def _conflict_facts(data: dict) -> list[str]:

@@ -7,7 +7,7 @@ from datetime import date
 
 import pytest
 
-from simulator.agent import _event_fact, _facts, _safe_arguments, answer
+from simulator.agent import _event_fact, _facts, _money_is_declined, _safe_arguments, answer
 from simulator.conversation import Turn
 
 SCHEDULE = {
@@ -1854,3 +1854,126 @@ def test_a_plain_cancellation_never_reads_the_roster(monkeypatch):
 
     agent_module.answer(None, "Dad", "cancel football practice", fake_call, {})
     assert calls == ["cancel_event"]
+
+
+def test_tomorrow_narrows_a_cancellation_like_a_weekday_does(monkeypatch):
+    """Reported from the browser. "Cancel the work event for tomorrow" named a day, but `named_day`
+    only knew weekday names, so the day was dropped and five identical "work" rows made it a
+    question instead of an answer."""
+    agent_module = _rule_agent(monkeypatch, ("cancel_event", {"title": "work event"}))
+    sent = []
+
+    def fake_call(mcp, tool, arguments):
+        sent.append(arguments)
+        return CANCELLED, {"tool": tool, "status": "success", "tool_ms": 1}
+
+    agent_module.answer(None, "Dad", "cancel the work event for tomorrow", fake_call, {})
+    assert sent[0]["day"] == "2026-10-09", "the day after the pinned today"
+
+
+def test_a_title_the_model_invented_is_retried_with_the_one_the_sentence_names(monkeypatch):
+    """Reported from the browser. "Work for Tuesday 9:30 to 2:15 p.m. cancel it" came back with the
+    whole time phrase as the title while the diary plainly had one called work. The retry happens
+    only on a miss, so an ordinary cancellation never pays for it."""
+    agent_module = _rule_agent(
+        monkeypatch, ("cancel_event", {"title": "Tuesday 9:30 to 2:15 p.m."})
+    )
+    sent = []
+
+    def fake_call(mcp, tool, arguments):
+        sent.append((tool, arguments))
+        if tool == "get_family":
+            return {"members": [{"name": "Dad"}], "locations": []}, {
+                "tool": tool, "status": "success", "tool_ms": 1}
+        if tool == "get_schedule":
+            return {"events": [{"title": "work"}]}, {"tool": tool, "status": "success",
+                                                     "tool_ms": 1}
+        if len([t for t, _ in sent if t == "cancel_event"]) == 1:
+            return {"cancelled": False, "found": False, "say": "I cannot find that."}, {
+                "tool": tool, "status": "success", "tool_ms": 1}
+        return CANCELLED, {"tool": tool, "status": "success", "tool_ms": 1}
+
+    turn = agent_module.answer(
+        None, "Dad", "work for Tuesday 9:30 to 2:15 p.m. cancel it", fake_call, {}
+    )
+    asked = [args for tool, args in sent if tool == "cancel_event"]
+
+    assert asked[0]["title"] == "Tuesday 9:30 to 2:15 p.m.", "the model's guess goes first"
+    assert asked[1]["title"] == "work", "then the word the sentence actually names"
+    assert turn.speak == CANCELLED["say"]
+    assert turn.debug["model_calls"] == 0, "recovering costs tool calls, never a model call"
+
+
+def test_asking_when_one_thing_is_does_not_recite_the_week(monkeypatch):
+    """Reported from the browser. "When do I have lunch with Mom" was answered with eight work
+    blocks, because the model filled start, end and `about` and left `title` empty."""
+    agent_module = _rule_agent(
+        monkeypatch,
+        ("get_schedule", {"about": "Dad", "start": "2026-10-05", "end": "2026-10-09"}),
+    )
+    sent = []
+
+    def fake_call(mcp, tool, arguments):
+        sent.append((tool, arguments))
+        if tool == "get_family":
+            return {"members": [{"name": "Dad"}], "locations": []}, {
+                "tool": tool, "status": "success", "tool_ms": 1}
+        if tool == "get_schedule" and "title" not in arguments and len(sent) < 3:
+            return {"events": [{"title": "lunch at grandpa's"}]}, {
+                "tool": tool, "status": "success", "tool_ms": 1}
+        return SCHEDULE, {"tool": tool, "status": "success", "tool_ms": 1}
+
+    agent_module.answer(None, "Dad", "when do I have lunch with mom", fake_call, {})
+    asked = [args for tool, args in sent if tool == "get_schedule"][-1]
+
+    assert asked["title"] == "lunch", "the question is about lunch, not about the week"
+    assert asked["about"] == "Dad", "and still about the person who asked"
+
+
+def test_asking_for_the_whole_day_is_still_the_whole_day(monkeypatch):
+    """The narrowing must not fire on "what have I got today", which asks for the day."""
+    agent_module = _rule_agent(
+        monkeypatch,
+        ("get_schedule", {"about": "Dad", "start": "2026-10-08", "end": "2026-10-08"}),
+    )
+    sent = []
+
+    def fake_call(mcp, tool, arguments):
+        sent.append((tool, arguments))
+        return SCHEDULE, {"tool": tool, "status": "success", "tool_ms": 1}
+
+    agent_module.answer(None, "Dad", "what have I got today", fake_call, {})
+    asked = [args for tool, args in sent if tool == "get_schedule"][-1]
+    assert "title" not in asked
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        "when is the farmer costume due",
+        "the costumes are ready",
+        "is the costume sorted",
+    ],
+)
+def test_a_costume_is_not_a_question_about_money(said):
+    """"cost" inside "costume" declined a school task LifePilot had written down itself.
+
+    The match is on whole words, so the family's own vocabulary survives the money guard.
+    """
+    tool, _ = _money_is_declined("get_schedule", {"about": "Aarav"}, said)
+    assert tool == "get_schedule"
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        "how much did football cost this month",
+        "what did we spend on piano",
+        "the fee for annual day",
+    ],
+)
+def test_a_real_question_about_money_is_still_declined(said):
+    """The guard still earns its place: LifePilot stores no amounts."""
+    tool, arguments = _money_is_declined("get_schedule", {}, said)
+    assert tool == "cannot_help"
+    assert "money" in arguments["reason"]

@@ -18,6 +18,16 @@ browser.
 re-verified in the browser the same day**, plus two found while re-testing. Experiment 4 unchanged
 at 100% / 100% / 100% after a one-call cassette re-record.
 
+**Oct 19 (fifth pass):** Varun kept driving it and found that **asking about one thing gets the
+whole week read back**. Fixed, plus the window wording beside it. **692 tests, ruff clean**, exp 4
+**100% / 100% / 100%**. Two gaps found in the same session are **left unbuilt on purpose** and are
+written up under §7 -- they are new capability, not tidy-ups, the day before the internal target.
+Also this pass: `docs/features.md` written, and **I wiped Varun's data by reseeding** (§8).
+
+**Oct 19 (fourth pass):** Varun drove it himself and cancelling failed on both of his phrasings.
+**Four root causes, none of which the suite could have caught**, all fixed and re-verified in the
+browser. **690 tests**, exp 4 unchanged. Written up under §2 below.
+
 **Oct 19 (third pass):** §1 and §2 are **closed**. **685 tests, ruff clean**, exp 4
 **100% / 100% / 100%** on the full set (16 schemas) -- and that number now means something it did
 not this morning, because **every one of the 55 transcripts asserts its answer**, not just its tool.
@@ -254,6 +264,48 @@ assignments with it. Nothing new in `approve.py`.
       and "cancel please" are -- and said straight after "shall I put it in?", that is correct. Both
       sides are now pinned by tests so nobody re-opens it.
 
+#### Found by Varun driving it, Oct 19 — all fixed
+
+Two sentences, four separate defects. Every one of them is the gap between a tool that works when
+called correctly and a product that works when spoken to.
+
+- [x] **"Cancel the work event for tomorrow"** -> *"I cannot find work event in the diary."* Two
+      causes at once. The title matched as a **whole phrase**, so "work event" did not find "work";
+      it now falls back to matching on real words, with the wrapper words ("the", "event", "my",
+      "appointment") stripped. And **"tomorrow" was not a day**: `named_day` only ever knew weekday
+      names, so the day was dropped and the search ran across five identical "work" rows.
+      `_day_meant` understands today, tonight, tomorrow and yesterday.
+- [x] **"Work for Tuesday 9:30 to 2:15 p.m. cancel it"** -> the model put the whole time phrase in
+      `title`. `_correct_title` already fixed exactly this for `what_if` (`title: "my"`), so cancel
+      now reuses it -- but **only after a miss**, so the common path pays nothing. One more call to
+      the server, no model call, the same recovery `_decide` makes from "which lift?".
+- [x] **The "I cannot find X" list was the whole family's diary.** Ten titles including other
+      people's piano and cricket, one sentence after being told "you have two things tomorrow".
+      That is what made it look like LifePilot had lost the schedule -- it had not, it was answering
+      a different question from the one asked. It now lists **what that person has on the day they
+      asked about**: "I cannot find yoga tomorrow. You have: school and work."
+- [x] **"on tomorrow"** -- the same wart as "On today at 5 PM", in a second place. `say_on` now
+      lives in `lifepilot_shared/speech.py` and both sides use it.
+
+Then, in the same session:
+
+- [x] **"When do I have lunch with Mom?" read the whole week back** -- eight work blocks, and the
+      lunch never mentioned. The model picked `get_schedule`, filled `start`, `end` and `about`,
+      and **left `title` empty**, so everything came back and everything was recited. The filter
+      works perfectly when it is passed; nobody was passing it. `_when_is_question` now reads the
+      thing out of the sentence from the family's own event names, the same shape as
+      `_lift_question` next to it -- but **keeps `about`**, because "when does Mom finish work" is
+      about Mom *and* about work, and dropping her answers with everybody's working day.
+      It fixed a second answer for free: *"when does Mom finish work on Friday"* went from a
+      three-sentence recital that wrongly said **"she has school"** to **"Mom's work is tomorrow
+      from 9 AM to 2:30 PM at her office."**
+- [x] **The "nothing found" sentence named a different window from the card beside it** -- "last
+      Saturday to Friday" spoken, `2026-10-19 to 2026-10-23` on the card. It quoted the session's
+      loaded week instead of the window actually searched. Two answers to one question.
+
+**Lesson 0, again, and this is the fourth time:** every one of these is a tool that passed its own
+tests. 690 tests did not catch a single one. A person typing a sentence caught six in two minutes.
+
 #### Closed Oct 19 (second pass)
 
 - [x] **One sentence, two verbs.** Built as a `replace_with` leg on `cancel_event` rather than as
@@ -302,6 +354,13 @@ assignments with it. Nothing new in `approve.py`.
       `CLAUDE.md` requires and the three in **Honesty notes** below.
 - [ ] `make eval` from clean; confirm every published number comes out of it.
 - [ ] Product feedback for every Amazon/AWS tool used, plus the friction log.
+- [x] **`docs/features.md` written** (Oct 19) -- every feature in plain language, with a real
+      spoken example for each, taken from browser and eval output rather than invented. Carries two
+      sections that matter as much as the features: what LifePilot **deliberately does not do**
+      (not a to-do list, not a chore scoreboard, no dashboard, never acts on its own) and the
+      honest notes (synthetic family, our own demo emails, partner notifications simulated, fixed
+      travel-time table, **and that the Gmail path has never run against a real inbox**). Useful
+      raw material for the README and the submission text.
 - [ ] **Correct `CLAUDE.md`'s counts again:** it says 18 registered and "14 vs 9". It is now **20
       registered, 16 vs 9**. Its tool table is also missing `cancel_event`, `add_event` and
       `scan_risks` as built, and still marks two of them "not built".
@@ -323,6 +382,46 @@ assignments with it. Nothing new in `approve.py`.
       newer SDK already ships one** — the Python SDK docs list an `mcp/server/skills` module that
       2.1.1 does not have, so this may be a backport note rather than a feature.
 - [ ] Write the coarse-set wording caveat into the README rather than tuning the descriptions.
+
+### 7. Found by Varun, Oct 19 — deliberately NOT built
+
+Both are **missing capability**, not bugs, and both were found the day before the internal target.
+Varun's call, not an assistant's. Recorded here so the next session does not rediscover them.
+
+- [ ] **"On which day can I schedule a lunch with Mom at 1 PM?" cannot be answered.** There is no
+      tool that **searches across days for a free slot**. The whole tool set either shows what is
+      there, judges one named day (`what_if`), or writes. So the model routed to `get_schedule`
+      with `at=1 PM` and answered about **today** -- a correct answer to a question nobody asked.
+      The hard part already exists: `free_gaps()` in `lifepilot/engine/risk.py` finds usable free
+      stretches across a date range, and `scan_risks` already uses it to pick a slot for a task at
+      risk. What is missing is overlapping **two** people's gaps and a `find_time` tool to route
+      to. Estimated: the tool and the wiring are small, the two-person overlap is a few hours.
+- [ ] **`add_event` does not read "with Mom" from the sentence**, so "book lunch with Mom" lands on
+      **Dad's calendar only**. `_members` defaults to the asker alone when the model fills no
+      `members` list -- and the model dropping exactly that name is a failure already observed and
+      already fixed **once**, for `cancel_event`'s replacement leg (`_people_after_with`). The same
+      fix applied to `add_event` is roughly fifteen minutes. **Fifth instance of the lesson that a
+      name in the sentence must be read from the sentence.**
+
+**The bigger point Varun made, which is worth keeping:** when a question falls outside the tool
+set, LifePilot gives a **near-miss answer instead of saying it cannot do that one yet**. Answering
+about today when the week was asked about is worse than admitting the gap. This is not the model's
+fault -- by design the model only routes and phrases, and is never allowed to judge availability,
+because an invented availability answer is a missed pickup. But the honest behaviour for an
+unanswerable question is a refusal, and `cannot_help` already exists to carry one.
+
+### 8. Reseeding destroyed Varun's data — my fault, not a bug
+
+While testing, I ran `eval.generate --seed-db --reset` against `demo.db` three times to get a clean
+slate. Each one dropped every table. One of them destroyed the `lunch with Mom` that Varun had
+created in the browser, and he then reasonably asked why LifePilot could not find it.
+
+The `.env` rule written into `CLAUDE.md` earlier the same day (lesson 9) says a remote reseed is the
+owner's call. **The same reasoning applies to the local demo database once somebody is using it**,
+and I did not apply it. A reseed is not a neutral setup step; it is destroying whatever is there.
+
+- [ ] Nothing to build. The rule is already written; it needs to be **followed for `demo.db` too**,
+      and a reseed asked for rather than assumed whenever Varun has the browser open.
 
 **Cut:** exp 7 (user study — not code, and the first item in the drop order; a study thin enough to
 run in the time would be the one invented number in a set where everything traces to a CSV). Stretch
@@ -574,6 +673,16 @@ Written down because each has cost real time more than once.
    `tests/conftest.py` deletes `DATABASE_URL` for the whole suite, which is why this can only happen
    outside the tests. The rule is written up in `CLAUDE.md` under "Never let `.env` decide what a
    command acts on".
+10. **A question about one thing must be narrowed to that thing.** The model routes correctly and
+   then leaves the narrowing field empty, so the server returns everything and the answer becomes a
+   recital. Three separate outings now -- `_lift_question`, `_correct_title`, `_when_is_question` --
+   and each was reported as "it doesn't answer my question", never as "the title was empty". When
+   an answer is true, complete and not what was asked, look at the **arguments**, not the wording.
+11. **An answer outside the tool set should be a refusal, not a near miss.** Asked which day a lunch
+   could go, LifePilot reported on today, because there is no free-slot search and `get_schedule`
+   was the closest thing. A near-miss answer reads as "it does not understand me"; `cannot_help`
+   reads as an honest limit. The model is not at fault -- it may never judge availability -- but
+   routing to the nearest tool and answering anyway is worse than declining.
 
 ---
 

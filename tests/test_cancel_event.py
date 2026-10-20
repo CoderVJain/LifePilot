@@ -222,3 +222,35 @@ def test_a_cancellation_with_no_replacement_is_still_one_change(session):
     result = cancel_event(session, "Dad", title="football practice")
     assert result["replaced_by"] is None
     assert len(session.get(Proposal, result["proposal_id"]).changes) == 1
+
+
+def test_the_words_people_wrap_round_a_name_do_not_hide_it(session):
+    """Reported from the browser. "Cancel the work event for tomorrow" looked for an event called
+    "work event", found none, and said so while the diary plainly had one called "work"."""
+    result = cancel_event(session, "Dad", title="work event", day=THURSDAY)
+
+    assert result["proposal_id"]
+    assert result["title"] == "work"
+
+
+def test_a_phrase_that_names_no_thing_still_matches_nothing(session):
+    """"Tuesday 9:30 to 2:15 p.m." is a time, not a name. Loosening the match must not make
+    everything match everything."""
+    result = cancel_event(session, "Dad", title="Tuesday 9:30 to 2:15 p.m.", day=THURSDAY)
+
+    assert result.get("proposal_id") is None
+    assert "I cannot find" in result["say"]
+
+
+def test_nothing_found_lists_what_you_do_have_that_day(session):
+    """It used to list every distinct title in the whole family's diary, whatever was asked. Told
+    "you have two things tomorrow" and then handed a list of ten including other people's piano and
+    cricket, a parent reasonably concludes it has lost track of the schedule."""
+    result = cancel_event(session, "Dad", title="yoga", day=THURSDAY)
+
+    say = result["say"]
+    # Thursday is the pinned "today", so it is named that way -- and never "on today".
+    assert "today" in say and "on today" not in say
+    assert "piano class" not in say, "Anaya's piano is not Dad's to be shown here"
+    assert "cricket practice" not in say
+    assert "work" in say and "performance review" in say, "what Dad actually has that day"
