@@ -373,11 +373,19 @@ tests. 690 tests did not catch a single one. A person typing a sentence caught s
       `.git` directory and resolves normally in a real clone.
 - [ ] README: concise, fresh-clone setup, every number traced to a CSV, plus the honest notes
       `CLAUDE.md` requires and the three in **Honesty notes** below.
-- [x] `make eval` from clean -- done Oct 20 in the fresh-clone tree. One command, six CSVs and
+- [x] `make eval` from clean -- done Oct 20 in the fresh-clone tree, and **re-run Oct 21 at
+      `e967952`** so all six CSVs stamp the commit being submitted rather than the two older SHAs
+      they carried. Identical numbers, **0 model calls**. One command, six CSVs and
       five PNGs, **0 recorded / 0 model calls**: exp 1 overlap F1 0.400 against LifePilot 1.000,
       exp 4 100% / 100% / 100% full and 92.7 / 94.5 / 90.9 coarse, exp 5 100% caught against 60%,
       exp 6 spread 0.43 against 5.00. Every README number traces to one of those CSVs.
-- [ ] Product feedback for every Amazon/AWS tool used, plus the friction log.
+- [ ] Product feedback for every Amazon/AWS tool used, plus the friction log. **The friction log is
+      current as of Oct 21**: entries 36-42 cover the Oct 18-20 work, which until then lived only in
+      this file -- the browser run, `cost`/`costume`, the token limit eating the deadline, the four
+      presentation defects, the wrong hop, the fresh-clone run and the CRLF skill digest. Feedback
+      for Bedrock and the MCP Python SDK is written up inside entries 38 and 42. **Still to do:**
+      gather the feedback scattered across nine entries into one `docs/product-feedback.md` and
+      paste it into the Devpost form -- a judge will not find it inside a 1,350-line log.
 - [x] **`docs/features.md` written** (Oct 19) -- every feature in plain language, with a real
       spoken example for each, taken from browser and eval output rather than invented. Carries two
       sections that matter as much as the features: what LifePilot **deliberately does not do**
@@ -385,12 +393,11 @@ tests. 690 tests did not catch a single one. A person typing a sentence caught s
       honest notes (synthetic family, our own demo emails, partner notifications simulated, fixed
       travel-time table, **and that the Gmail path has never run against a real inbox**). Useful
       raw material for the README and the submission text.
-- [ ] **Correct `CLAUDE.md`'s counts again:** it says 18 registered and "14 vs 9". It is now **20
-      registered, 16 vs 9**. It also still quotes the coarse set at **82.2%** tool correctness;
-      measured Oct 20 it is **92.7%** (args 94.5%, answers 90.9%, all three 87.3%), and the
-      conclusion is unchanged — coarse is worse, so it stays a result to report. Its tool table is
-      also missing `cancel_event`, `add_event` and `scan_risks` as built, and still marks two of
-      them "not built". **Varun's call, not an assistant's** — it is the spec file.
+- [x] **`CLAUDE.md`'s counts corrected, Oct 21** on Varun's say-so: **20 registered, 16 vs 9**, the
+      coarse set quoted at its measured **92.7%** (args 94.5%, answers 90.9%, all three 87.3%) with
+      the conclusion unchanged, `cancel_event` and `scan_risks` in the tool table, `update_task`
+      named as the one thing in it not built, and the cost table's tool block corrected from "~3,500
+      tokens of 18 schemas" to the measured **1,879 tokens of 16**. Nothing else in the spec touched.
 
 ### 5. Gmail (#7) — closed Oct 20
 

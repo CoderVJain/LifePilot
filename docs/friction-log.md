@@ -1143,3 +1143,207 @@ the request.
 **Also worth recording:** `CLAUDE.md` put the tool-schema block at ~3,500 tokens. Measured, it is
 1,879 (2,023 for the whole call, 144 of it the system prompt and user text). The caching win is real
 but the uncached baseline was overstated by about half.
+
+## 36. Seven defects that only a spoken sentence could find (Oct 18-19, 2026)
+
+641 tests passed and `make eval` read 100%, so the first full browser run was expected to be a
+formality. It produced seven defects, three of them on what was meant to be a camera take, and the
+suite could not have caught one of them.
+
+**The worst was #5, what-if, which was unreachable by voice at all.** Three phrasings failed three
+different ways:
+
+| said | what happened | cause |
+|---|---|---|
+| "what if my four o'clock runs late on Thursday" | answered about Oct 21 | the day came from the model, which guessed |
+| "my 4 PM" | reached Aarav's 16:00 science project | a bare time searched the whole family's diary |
+| "runs till 5:30" | no end time read at all | the title the model invented (`"my"`) matched nothing |
+
+**Cause, all three.** The model was being asked to supply facts about the family's diary -- which day
+"Thursday" is, whose 4 PM, what "till 5:30" means. `CLAUDE.md` forbids exactly that, and the code had
+let it in through the argument list rather than through an answer.
+
+**Fix.** `_pin_day` resolves a named weekday in code. `_starting_around` restricts a bare time to the
+asker's own diary with half an hour of rounding -- a time with no title is a claim about one's own
+day, and naming an event is how you ask about somebody else's. `_correct_title` replaces an invented
+title with one from the family's own event vocabulary, and `_fill_until` reads the end time from the
+sentence.
+
+**A worsened problem was reported as safe**, which is the one defect here that could have mattered.
+The football pickup went from "Dad arrives 17:25" to "Dad is in a meeting until 17:30", and `ripple`
+keyed it `unchanged` because the problem existed before and after. The answer was *"That works.
+Nothing new breaks."* `Ripple.worsens` now splits a problem whose explanation changed, and the card
+labels it "gets worse".
+
+The rest were presentation: the swap card rendered `undefined changes` because `request_swap` never
+supplied the three fields the shared template needs; "why not X" read out the stored reason raw
+(*"rule: only when no parent is free"*); and 24-hour times leaked into speech at six sites.
+
+**And half an hour was lost to a bug that was already fixed:** a stale `app.js` survived both a
+restart and a reload. The simulator's static files now serve `Cache-Control: no-cache`, with a test.
+On a demo day that is a stale answer on camera with no explanation available.
+
+**Lesson.** The suite asserts what tools return. Every one of these lived after that: in the
+arguments going in, or in the sentence and the card coming out. A feature with passing tests and no
+spoken path is not built.
+
+## 37. "cost" is a substring of "costume" (Oct 20, 2026)
+
+**Symptom.** *"When is the farmer costume due"* answered *"LifePilot keeps no record of money"* --
+about a school task LifePilot had extracted, stored and proposed itself.
+
+**Cause.** `_money_is_declined` matched the `MONEY` keywords as **substrings**, so `cost` hit
+`costume` and overrode a correctly routed `get_schedule`. Nova was right at every step; our own cheap
+guard was wrong.
+
+**Fix.** Whole-word matching (`MONEY_WORDS`) and six regression tests.
+
+**Lesson, for the sixth time in this log.** A keyword guard is a liability the moment the family's own
+vocabulary collides with it. These guards exist for good reasons -- they decide in code what the model
+must not decide, and they cost nothing -- but every one of them is a substring away from answering the
+wrong question confidently. The test that would have caught this is not "does `cost` decline" but
+"does a word containing `cost` not decline".
+
+## 38. The token limit ate the deadline (Oct 20, 2026)
+
+**Symptom.** Asked about the week, LifePilot listed school and work and never mentioned the costume
+due on Friday. The task was in the database and in the tool result both times.
+
+**Cause, two layers.** `_facts` appended the deadlines **after** up to eight event lines, and `phrase`
+ran at `max_tokens=160`. A seven-event week was cut mid-word before the deadlines were reached. Worse,
+nothing noticed: the Converse response was handed on and spoken as if complete.
+
+**Fix.** Deadlines now come **before** the day's shape, because a deadline is the part that gets
+missed if nobody says it and school is the part already known. `max_tokens` is 320, and `phrase`
+checks `stopReason`: on `max_tokens` it speaks the computed facts instead of a sentence that stops
+mid-word. No retry and no second call, so the per-turn ceiling is untouched.
+
+**Product feedback for Bedrock.** A `max_tokens` stop returns a `message` that is structurally
+indistinguishable from a complete one -- same shape, same content block, no marker on the text. The
+only signal is `stopReason`, one level up, and it is easy to never read. A truncation flag on the
+content block itself, or a documented warning beside `maxTokens` in the Converse reference, would
+have turned a silent wrong answer into an obvious one.
+
+**Lesson.** Ordering is a correctness property when the output is a spoken sentence of bounded
+length. What goes last is what gets dropped.
+
+## 39. The data was right and the presentation dropped it (Oct 20, 2026)
+
+Four defects in one day with one shape: **correct rows in the database, lost on the way to the
+person.** The suite asserts tool results, so none of the four was reachable by it.
+
+- **The schedule card never drew tasks.** `agent.py` had been sending `card.tasks` in the payload all
+  along; `renderScheduleCard` only iterated `card.events`, and the word `task` appeared nowhere in
+  `app.js`. A day holding only a deadline read *"Nothing visible to you this week."*
+- **"It breaks 2 things:" named one of them.** `add_event.py` announced the count and then spoke
+  `breaks[0]` alone, while the card beside it listed both -- two answers to one question, and a parent
+  approving a problem nobody told them about.
+- **The family's vocabulary did not include its own tasks.** `_known_things` indexed event titles and
+  locations only, so "costume" matched nothing and the question fell through to the model's guess: the
+  asker's whole week. Indexing tasks was half a fix -- with `title='costume'` and `about='Dad'`,
+  `get_schedule` filtered Aarav's task straight back out. `_when_is_question` now drops `about` when
+  the named thing is a deadline, because a deadline belongs to whoever owns it rather than whoever
+  asked. Everything else keeps `about`, so *"when does Mom finish work on Friday"* still answers about
+  Mom.
+- **`add_event` ignored "with Mom".** The diagnosis we had written down was wrong: it said `_members`
+  defaults to the asker when the model fills no list. Driven in a browser, the model **did** fill it
+  -- `["Dad"]` -- so the fallback never fired and the booking came back titled *"Lunch with Mom"* with
+  Mom not on it. It is a **union**, not a default. This is not cosmetic: with Mom actually on the
+  event, the solver can see she is double-booked, which it structurally could not before. A test
+  written for the fix had the wrong shape and passed anyway; 705 tests did not notice, and one typed
+  sentence did.
+
+**Lesson.** This is the inverse of the failure mode the suite is built for. A unit test proves the
+tool computed the right thing; it says nothing about whether the right thing was said out loud or
+drawn on the card. The last hop needs its own assertions, and for the shared card templates that now
+means a test pinning the contract so a third card cannot drift.
+
+## 40. The simulator blamed the wrong hop (Oct 20, 2026)
+
+**Symptom.** With the MCP server down, every turn answered *"Something went wrong reaching the
+language model"*. Bedrock was fine. It cost half an hour the first time and a confused cycle twice
+more.
+
+**Cause.** `_why_degraded` had two branches and no notion of a dead MCP session, so the model was
+blamed by default.
+
+**Fix.** A third branch: *"I cannot reach the planning server"*, verified against the real failure --
+the MCP server killed under a running session, not a mocked exception.
+
+**Reconnection is deliberately not built.** `lifespan` opens one `MCPClient` and holds it for the life
+of the process, so restarting the MCP server alone still leaves that session dead; it now says so
+honestly instead of pointing at the wrong service. Touching the hot path three days before the
+deadline buys less than it risks. Operationally: **start the MCP server first, then the simulator**,
+and restart both after a server-side change. That is now in the README, because it cost a cycle --
+a server-side sentence was fixed, only the simulator was restarted, and the old sentence came back
+from the stale server process.
+
+**Lesson.** A default error message is a guess about which dependency failed, and it will be wrong at
+the worst moment. Name the hop or say nothing about it.
+
+**Not a defect, worth knowing.** *"Nothing new from school"* was correct while the allowlist named the
+**linked inbox** instead of the **sender playing the school**: `from:(the demo account)` genuinely
+matched nothing. An honest answer that still sent us looking in the wrong place. An allowlist equal to
+the linked account is a detectable mistake and deserves a sentence back.
+
+## 41. The published repository is not the working tree (Oct 20, 2026)
+
+Requirement 4 -- a judge can run it from a fresh clone -- had never actually been tested, and it was
+the last item that could fail the entry outright rather than cost it points. The test: build a tree
+with `git checkout-index`, so it holds exactly the 145 files git tracks and nothing else, then follow
+only the README. It found four defects, **two of which could not be seen from the working tree at
+all**.
+
+- **`docs/features.md` was never in the repository.** `.gitignore` carried a bare `features.md`,
+  which matches at any depth. The file written the day before was ignored. The other two docs survived
+  only because they were tracked before that rule landed -- git ignores do not apply to already-tracked
+  files, which is precisely why the mistake was invisible locally. The friction log was safe, which
+  matters: it is requirement 7.
+- **`make test` failed on a fresh clone.** `tests/test_app.py` used `TestClient(app)` as a context
+  manager, which runs `lifespan` and opens a real `MCPClient`, so both tests died with `ConnectError`
+  where nothing was running -- under a docstring reading "Offline and free". The routes under test are
+  mounted at import time and never needed the lifespan. `test_session.py` had already avoided it for
+  this reason.
+- **Stale README numbers:** 369 tests where there were 698, and 35 utterances where there were 55.
+  Both are numbers a judge checks in one command, which is the whole point of promising them.
+- **The Agent Skill digest** -- entry 42, because it deserves its own.
+
+`make eval` then reproduced all six experiments from that clean tree in one command: six CSVs, five
+PNGs, **0 recorded, 0 model calls**. The one thing this method cannot reproduce is `git_sha`, which
+reads `unknown` with no `.git` directory and resolves normally in a real clone.
+
+**Lesson.** 698 tests passed on a machine where `make test` failed from a clean clone and a promised
+document was not in the repository. Neither is a logic error, and no unit test was ever going to see
+one: they live in the gap between the developer's disk and what is published. A fresh-clone run is a
+test, and it belongs in the schedule rather than in the last week.
+
+## 42. The Agent Skill advertised a digest for bytes it does not serve (Oct 20, 2026)
+
+The best single find of the fresh-clone run, and it was broken for **every Windows judge** while being
+perfect here.
+
+**Symptom.** None, locally. On a Windows clone the host fetched the skill, compared the digest, found
+a mismatch and rejected it. SEP-2640 has the host reject on mismatch, so the skill **silently never
+loads** -- no error a builder would see, and the Open Source mini challenge's own artefact simply
+absent.
+
+**Cause.** `skills.py` digested `path.read_bytes()` while serving `path.read_text()`.
+Universal-newline translation turns CRLF into LF on the way out, so the digest described the file on
+disk and the catalogue described the file on the wire. Our tree is LF, so the two agreed by luck.
+`core.autocrlf` is **Git's default on Windows**: every Windows clone got a catalogue claiming 3413
+bytes (`e6cb528d...`) for the 3344 actually served (`37f89e46...`).
+
+**Fix.** `_served_bytes()` digests what goes on the wire. The regression test writes its own CRLF
+file, so it fails on an LF checkout too rather than waiting for another Windows clone to notice.
+
+**Product feedback for the MCP Python SDK / SEP-2640.** A silent rejection on digest mismatch is the
+right security behaviour and the worst possible diagnostic. Two things would have caught this in
+seconds rather than never: log the expected and computed digests at debug level on the host side, and
+in the SDK's own helper compute the digest from the bytes it is about to serve rather than leaving
+both halves to the implementer. The failure mode -- digest the file, serve a transformation of the
+file -- is not specific to us; any text resource read as text on a platform with different line
+endings has it.
+
+**Lesson.** "It works on my machine" has a sharper form: *it hashes on my machine*. Any check that
+compares a stored digest against served bytes has to be fed the served bytes, and the test for it has
+to construct the condition the developer's platform cannot produce.

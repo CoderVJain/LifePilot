@@ -371,30 +371,36 @@ so there is exactly one file to read when asking what spends money.
 
 ## MCP tools
 
-The server registers **18 tools**; experiment 4 compares the routing set with a **9-tool** merged
+The server registers **20 tools**; experiment 4 compares the routing set with a **9-tool** merged
 set behind `TOOLSET=full|coarse`. Same capabilities, different granularity. Keep both sets in sync —
 `tests/test_toolsets.py` fails if a tool is added to one and forgotten in the other.
 
-**The comparison is 14 against 9, not 18 against 9.** The model is only ever offered the 14 it can
-route to; the other four (`approve_proposal`, `reject_proposal`, `list_proposals`, `name_task_child`)
-are reached by code paths, because a yes or no is settled before the model is asked. Measured, the
-coarse set is **worse** — 82.2% tool correctness against 100% — so it is a result to report, not a
-mitigation to hold in reserve. See `eval/results/experiment4.csv`.
+**The comparison is 16 against 9, not 20 against 9.** The model is only ever offered 16 schemas: 15
+of the registered tools plus `cannot_help`, which is the simulator's refusal and has no server tool
+behind it. The other five (`approve_proposal`, `reject_proposal`, `list_proposals`,
+`name_task_child`, `remove_rule`) are reached by code paths, because a yes or no is settled before
+the model is asked. The rule schema the model sees is named `remember_rule` and calls `add_rule`.
+Measured Oct 20, the coarse set is **worse** — 92.7% tool correctness against 100%, arguments 94.5%
+against 100%, answers 90.9% against 100%, all three 87.3% against 100% — so it is a result to
+report, not a mitigation to hold in reserve. See `eval/results/experiment4.csv`.
 
-**Full set (18 registered):**
+**Full set (20 registered):**
 
 | Area | Tools |
 |---|---|
 | Context | `get_family`, `get_schedule` (events + tasks) |
-| Rules | `add_rule`, `list_rules`, `remove_rule` |
-| Detect | `detect_conflicts` (#1) · `scan_risks` **not built** |
+| Rules | `add_rule` (routed as `remember_rule`), `list_rules`, `remove_rule` |
+| Detect | `detect_conflicts` (#1), `scan_risks` |
 | Decide | `suggest_responsible` (#2), `explain_choice` (#3, "why" and "why not X") |
 | Repair | `fix_week` (#4), `what_if` (#5, read-only) |
 | Approve | `approve_proposal`, `reject_proposal` |
 | Partner | `request_swap` (#6) |
-| Changes | `add_event` · `update_task` **not built** |
-| Proposals | `list_proposals`, `name_task_child` (both built, were missing from this table) |
+| Changes | `add_event`, `cancel_event` |
+| Proposals | `list_proposals`, `name_task_child` |
 | School email | `check_school_email` (#7), `manage_email_access` (set allowed senders, disconnect) |
+
+`update_task` is **not built**: a task is changed by cancelling and re-booking, and nothing in the
+demo or the experiments needs it.
 
 **Coarse set (9), as built in `simulator/toolsets.py`:** `get_context`, `update_rules`,
 `find_problems`, `decide_and_explain`, `plan_changes`, `update_schedule`, `school_email`,
@@ -402,7 +408,7 @@ mitigation to hold in reserve. See `eval/results/experiment4.csv`.
 
 `cannot_help` replaces this table's original `decide_proposal`: a refusal has to be routable, and a
 proposal decision never is. The coarse set is a view over the schemas the model chooses among, not a
-second registration — the server stays at 18.
+second registration — the server stays at 20.
 
 Stretch tools (`make_study_plan`, `get_load_summary`) sit behind `STRETCH=1` and are in neither set.
 
@@ -496,7 +502,7 @@ Measured, not guessed (Nova Micro at $0.035 / $0.14 per 1M tokens):
 
 | | |
 |---|---|
-| One voice turn (2 calls; the ~3,500-token block of 18 tool schemas dominates) | $0.000335 |
+| One voice turn (2 calls; the 1,879-token block of 16 tool schemas dominates) | $0.000335 |
 | Same turn with prompt caching | $0.000152 |
 | One school-email extraction | $0.000067 |
 | One full `make eval`, all 7 experiments | $0.45 |
