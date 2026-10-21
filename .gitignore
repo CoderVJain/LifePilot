@@ -9,4 +9,5 @@ __pycache__/
 *.db
 .playwright-mcp/
 .cache/
-
+# Local only: the recording script and the architecture page.
+docs/

@@ -111,7 +111,7 @@ def test_a_rejected_certificate_explains_itself(monkeypatch):
     message = str(raised.value)
     assert "antivirus" in message
     assert ".env" in message
-    assert "friction-log" in message
+    assert "FRICTION-LOG" in message
 
 
 # --------------------------------------------------------------------------- .env and the shell

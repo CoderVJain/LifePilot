@@ -109,7 +109,7 @@ audit logs.
    simulated Alexa+ web client** (allowed by the rules). Say this plainly in the README and submission.
 6. Demo video is **under 3 minutes**, English, public on YouTube, and shows LifePilot working in the simulator.
 7. Submission includes **product feedback** for every Amazon/AWS tool used, plus a **friction log**
-   (`docs/friction-log.md`, up to 10% judging bonus). Log friction as it happens.
+   (`FRICTION-LOG.md`, up to 10% judging bonus). Log friction as it happens.
 8. No Amazon/Alexa/Gmail/WhatsApp logos, Echo look-alikes, third-party trademarks, copyrighted music, or real
    people's data.
 9. **Demo uses a dedicated demo Gmail account with fake school emails we write ourselves.** Never a real inbox,
@@ -563,7 +563,7 @@ so the cause is not obvious. Point `AWS_CA_BUNDLE` at the interceptor's root cer
 AWS_CA_BUNDLE=C:\ProgramData\Avast Software\Avast\wscert.pem
 ```
 
-`llm.py` applies it so both processes inherit it. This belongs in `docs/friction-log.md`.
+`llm.py` applies it so both processes inherit it. This belongs in `FRICTION-LOG.md`.
 
 ---
 

@@ -72,20 +72,14 @@ not speech. Every unprompted message in the UI carries a "simulated" badge, and 
 model calls** — the sentences come from templates, because a timer pointed at Bedrock bills for as long
 as the page is open.
 
-Both limitations are written up with sources in [docs/alexa-platform-limits.md](docs/alexa-platform-limits.md).
+Both limitations are written up with sources in [ALEXA-PLATFORM-LIMITS.md](ALEXA-PLATFORM-LIMITS.md).
 
 ## How it is put together
 
-```
-browser      thin: mic → text, speaks replies, renders MCP App cards
-   │         WebSocket
-simulator/   FastAPI + Strands agent + Bedrock Nova Micro → MCP client
-   │         Streamable HTTP, MCP spec 2025-11-25
-lifepilot/   FastAPI + official MCP Python SDK
-             engine/ (reachability, allocation, rules) · solver/ (OR-Tools CP-SAT) · SQLAlchemy
-lifepilot_shared/llm.py   the only module that calls Bedrock
-eval/        synthetic families, golden transcripts, experiments
-```
+![LifePilot architecture: browser to simulator to MCP server, with Bedrock reached only through llm.py and credentials never leaving the server](architecture.png)
+
+The model understands and words the answer; `engine/` and `solver/` decide. `eval/` holds the
+synthetic families, the golden transcripts and the experiments.
 
 Writes never happen directly. A write tool creates a **pending proposal**; `approve_proposal`, called
 by a parent, is the only thing that executes one.

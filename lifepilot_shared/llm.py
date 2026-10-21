@@ -236,6 +236,6 @@ def _ssl_advice() -> str:
     )
     lines.append(
         f"Run `uv run python -m scripts.check_bedrock` in this same terminal, and see "
-        f"{PROJECT_ROOT / '.env'} and docs/friction-log.md entry 1."
+        f"{PROJECT_ROOT / '.env'} and FRICTION-LOG.md entry 1."
     )
     return " ".join(lines)

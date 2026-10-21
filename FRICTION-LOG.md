@@ -935,7 +935,7 @@ re-applied deliberately rather than through another shell script.
 
 Asked how a real Echo would know who is talking, and how LifePilot would speak at a set time. Both
 answers changed the design, so both were checked against Amazon's documentation first rather than
-assumed. Written up in full in `docs/alexa-platform-limits.md`.
+assumed. Written up in full in `ALEXA-PLATFORM-LIMITS.md`.
 
 **Per-speaker identity is not available to an add-on.** A classic Alexa skill gets
 `context.System.person.personId` when a Voice Profile matches and the customer has enabled
